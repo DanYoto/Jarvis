@@ -1,10 +1,3 @@
-#!/usr/bin/env python3
-# -*- coding: utf-8 -*-
-"""
-Vosk实时语音识别系统 - 为Jarvis优化
-支持中英文混合识别，极低延迟，轻量级部署
-"""
-
 import json
 import queue
 import sounddevice as sd
@@ -17,11 +10,7 @@ from typing import Optional, Dict, List, Callable
 import webrtcvad
 from scipy import signal
 import re
-import logging
 
-# 配置日志
-logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(levelname)s - %(message)s')
-logger = logging.getLogger(__name__)
 
 class VoskRealtimeSTT:
     """real-time speech-to-text using Vosk"""
@@ -57,7 +46,6 @@ class VoskRealtimeSTT:
         self.model = vosk.Model(model_path)
         self.rec = vosk.KaldiRecognizer(self.model, sample_rate)
         self.rec.SetWords(True)
-        logger.info(f"Vosk model load successfully: {model_path}")
         
         # initialize VAD
         self.vad = webrtcvad.Vad(2)  # medium aggressiveness
@@ -80,37 +68,29 @@ class VoskRealtimeSTT:
         
     def setup_audio_stream(self):
         """setup audio input stream"""
-        try:
-            # check device availability
-            if self.device is None:
-                device_info = sd.query_devices(kind='input')
-                logger.info(f"Use default audio input system: {device_info['name']}")
-            else:
-                device_info = sd.query_devices(self.device, kind='input')
-                logger.info(f"Use pointed device: {device_info['name']}")
+        # check device availability
+        if self.device is None:
+            device_info = sd.query_devices(kind='input')
+        else:
+            device_info = sd.query_devices(self.device, kind='input')
+
+        print(f"device_info: {device_info}")
+
+        # setup audio stream
+        self.stream = sd.InputStream(
+            device=self.device,
+            channels=self.channels,
+            samplerate=self.sample_rate,
+            blocksize=self.blocksize,
+            dtype=np.int16,
+            callback=self._audio_callback
+        )
             
-            # setup audio stream
-            self.stream = sd.InputStream(
-                device=self.device,
-                channels=self.channels,
-                samplerate=self.sample_rate,
-                blocksize=self.blocksize,
-                dtype=np.int16,
-                callback=self._audio_callback
-            )
-            
-            logger.info(f"Audio Stream configured - samplerate: {self.sample_rate}Hz, blocksize: {self.blocksize}")
-            
-        except Exception as e:
-            logger.error(f"Audio setup stream failed: {e}")
-            raise
-    
     def _audio_callback(self, indata, frames, time_info, status):
         """audio input callback"""
-        if status:
-            logger.warning(f"audio stream state: {status}")
         
         # process audio data
+        # indata is a 2D array with size (1600, 1), we need to flatten it to 1D array
         audio_data = indata.flatten().astype(np.int16)
         if not self.audio_queue.full():
             self.audio_queue.put(audio_data)
@@ -120,33 +100,22 @@ class VoskRealtimeSTT:
             except queue.Empty:
                 pass
             self.audio_queue.put(audio_data)
+        
     
     def _preprocess_audio(self, audio_data: np.ndarray) -> np.ndarray:
         """audio preprocessing"""
-        # normalize audio volume
-        if np.max(np.abs(audio_data)) > 0:
-            audio_data = audio_data / np.max(np.abs(audio_data)) * 0.8
-        
-        if len(audio_data) > 64:  # make sure audio data is long enough for filtering
-            b, a = signal.butter(3, 80/(self.sample_rate/2), 'high')
-            audio_data = signal.filtfilt(b, a, audio_data)
-        
-        return audio_data.astype(np.int16)
+        return audio_data
     
     def _detect_speech_vad(self, audio_frame: np.ndarray) -> bool:
         """use VAD to detect speech in audio frame"""
-        try:
-            if len(audio_frame) != self.vad_frame_size:
-                return False
-            
-            # turn into bytes for VAD
-            frame_bytes = audio_frame.astype(np.int16).tobytes()
-            
-            # VAD detection
-            return self.vad.is_speech(frame_bytes, self.sample_rate)
-        except Exception as e:
-            logger.debug(f"VAD detection error: {e}")
+        if len(audio_frame) != self.vad_frame_size:
             return False
+        
+        # turn into bytes for VAD
+        frame_bytes = audio_frame.astype(np.int16).tobytes()
+        
+        # VAD detection
+        return self.vad.is_speech(frame_bytes, self.sample_rate)
     
     def _process_audio_chunk(self, audio_data: np.ndarray) -> Optional[Dict]:
         """process audio chunk and perform speech recognition"""
@@ -182,7 +151,7 @@ class VoskRealtimeSTT:
         # real-time recognition
         if len(self.speech_frames) > 0:
             # send accumulated audio frames for recognition
-            audio_bytes = np.array(self.speech_frames, dtype=np.int16).tobytes()
+            audio_bytes = np.array(self.speech_frames[-len(audio_data):], dtype=np.int16).tobytes()
             
             if self.rec.AcceptWaveform(audio_bytes):
                 result = json.loads(self.rec.Result())
@@ -208,23 +177,20 @@ class VoskRealtimeSTT:
         if not self.speech_frames:
             return None
         
-        try:
-            # turn accumulated speech frames into bytes
-            audio_bytes = np.array(self.speech_frames, dtype=np.int16).tobytes()
-            
-            # speech recognition
-            if self.rec.AcceptWaveform(audio_bytes):
-                result = json.loads(self.rec.Result())
-            else:
-                result = json.loads(self.rec.FinalResult())
-            
-            if result.get('text', '').strip():
-                return self._post_process_result(result)
-                
-        except Exception as e:
-            logger.error(f"transcribe failed: {e}")
+        # turn accumulated speech frames into bytes
+        audio_bytes = np.array(self.speech_frames, dtype=np.int16).tobytes()
         
-        return None
+        # speech recognition
+        if self.rec.AcceptWaveform(audio_bytes):
+            result = json.loads(self.rec.Result())
+        else:
+            result = json.loads(self.rec.FinalResult())
+        
+        self.rec.Reset()
+
+        if result.get('text', '').strip():
+            return self._post_process_result(result)
+
     
     def _post_process_result(self, result: Dict) -> Dict:
         """post-process recognition result"""
@@ -236,7 +202,6 @@ class VoskRealtimeSTT:
         # confirm confidence level
         confidence = result.get('confidence', 1.0)
         if confidence < self.confidence_threshold:
-            logger.debug(f"confidence too low: {confidence}, text: {text}")
             return None
         
         if self.enable_post_processing:
@@ -274,7 +239,6 @@ class VoskRealtimeSTT:
     
     def _processing_worker(self):
         """audio processing thread worker"""
-        logger.info("audo processing thread started")
         
         while self.is_recording:
             try:
@@ -286,25 +250,16 @@ class VoskRealtimeSTT:
                 if result:
                     self.result_queue.put(result)
                     if self.callback:
-                        try:
-                            self.callback(result)
-                        except Exception as e:
-                            logger.error(f"callback function failed: {e}")
+                        self.callback(result)
                 
                 self.audio_queue.task_done()
                 
             except queue.Empty:
                 continue
-            except Exception as e:
-                logger.error(f"audio process failed: {e}")
-        
-        logger.info("audio processing thread stopped")
+
     
     def start_recognition(self):
         """start real-time speech recognition"""
-        if self.is_recording:
-            logger.warning("real-time speech recognition is already running")
-            return
         
         try:
 
@@ -316,10 +271,8 @@ class VoskRealtimeSTT:
             self.processing_thread.start()
             self.stream.start()
             
-            logger.info("real-time speech recognition started")
             
         except Exception as e:
-            logger.error(f"recognition failed: {e}")
             self.stop_recognition()
             raise
     
@@ -328,22 +281,16 @@ class VoskRealtimeSTT:
         if not self.is_recording:
             return
         
-        logger.info("Stopping real-time speech recognition...")
         
         self.is_recording = False
         
         if hasattr(self, 'stream'):
-            try:
-                self.stream.stop()
-                self.stream.close()
-            except Exception as e:
-                logger.error(f"Stop recognition failed: {e}")
+            self.stream.stop()
+            self.stream.close()
         
         # wait for processing thread to finish
         if self.processing_thread and self.processing_thread.is_alive():
             self.processing_thread.join(timeout=2.0)
-        
-        logger.info("real-time speech recognition stopped")
     
     def get_results(self) -> List[Dict]:
         """get recognition results"""
@@ -354,16 +301,12 @@ class VoskRealtimeSTT:
             except queue.Empty:
                 break
         return results
-    
+
+
     def set_vocabulary(self, vocabulary: List[str]):
-        """create custom vocabulary"""
-        try:
-            vocab_json = json.dumps(vocabulary, ensure_ascii=False)
-            self.rec.SetGrammar(vocab_json)
-            logger.info(f"customized volcabulary including {len(vocabulary)} vocabulary items")
-        except Exception as e:
-            logger.error(f"create custom vocalbulary failed: {e}")
-    
+        """create custom&limited vocabulary"""
+        self.rec = KaldiRecognizer(self.model, self.sample_rate, vocabulary)
+
     def get_word_timestamps(self, result: Dict) -> List[Dict]:
         """get word-level timestamps from recognition result"""
         words = result.get('words', [])
@@ -400,7 +343,7 @@ def result_callback(result: Dict):
 
 def main():
     model_paths = {
-        'english': '/home/azureuser/cloudfiles/code/Users/yutong.jiang2/personal_file/Jarvis/src/jarvis/speech2text/models/vosk-model-small-en-us-0.15',
+        'english': '/Users/yutong.jiang2/Library/CloudStorage/OneDrive-IKEA/Desktop/Jarvis/src/jarvis/speech2text/models/vosk-model-small-en-us-0.15',
     }
     
     model_path = model_paths.get('english')
@@ -417,26 +360,28 @@ def main():
         callback=result_callback
     )
     
-    # set up custom vocabulary
-    custom_vocabulary = [
-        "Hi"
-    ]
-    stt.set_vocabulary(custom_vocabulary)
-    
     try:
         print("🎤 start Vosk real-time audio recognition...")
         print("test, press Ctrl+C to stop")
         print("-" * 50)
         
-        # 开始识别
         stt.start_recognition()
         
-        # 主循环
         start_time = time.time()
         while True:
             time.sleep(0.1)
             
-            # 定期显示运行状态
+            results = stt.get_results()
+            print(results)
+            for result in results:
+                if result['type'] == 'final':
+                    print(f"🎯 final recognition: {result['text']}")
+                    print(f"   confidence: {result['confidence']:.2f}")
+                    print(f"   words: {result['words']}")
+                elif result['type'] == 'partial':
+                    print(f"⚡ real-time recognition: {result['text']}")
+                    print(f"   confidence: {result['confidence']:.2f}")
+
             if int(time.time() - start_time) % 30 == 0:
                 runtime = time.time() - start_time
                 print(f"⏱️  running time: {runtime:.0f}s")
