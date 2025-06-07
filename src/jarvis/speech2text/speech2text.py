@@ -46,15 +46,15 @@ class VoskRealtimeSTT:
         self.rec = vosk.KaldiRecognizer(self.model, sample_rate)
         self.rec.SetWords(True)
         
-        # Vosk 内置的部分结果超时设置
-        # 设置部分结果的超时时间，单位是秒
+        # Vosk timeout settings
+        # Set to True to get partial results, False for final results only
         self.rec.SetPartialWords(True)
         self.rec.SetMaxAlternatives(0)
         
-        # 用于跟踪静音
+        # track mute state
         self.last_result_time = time.time()
-        self.silence_timeout = 1.5  # 1.5秒静音后认为说话结束
-        
+        self.silence_timeout = 1.5  # 1.5 seconds of silence considered end of speech
+
         # threading state
         self.is_recording = False
         self.processing_thread = None
@@ -68,7 +68,7 @@ class VoskRealtimeSTT:
         self.enable_post_processing = True
         self.confidence_threshold = 0.6
         
-        # 跟踪是否有未完成的语音
+        # track partial results
         self.has_partial_result = False
         
     def setup_audio_stream(self):
@@ -107,6 +107,8 @@ class VoskRealtimeSTT:
         # Use put_nowait to avoid blocking in callback
         try:
             self.audio_queue.put_nowait(audio_data)
+
+        # As queue is with default maxsize, no except.full is raised
         except queue.Full:
             # Drop oldest audio if queue is full
             try:
