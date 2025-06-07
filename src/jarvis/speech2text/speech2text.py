@@ -37,7 +37,10 @@ class VoskRealtimeSTT:
         self.callback = callback
         
         # processing parameters
-        self.blocksize = int(sample_rate * 0.1)  # 100ms
+        # blocksize is the number of samples per audio block
+        # samplerate is the number of samples per second
+        # by setting blocksize and samplerate, we know _audio_callback will be called every 0.1 seconds
+        self.blocksize = int(sample_rate * 0.1)
         self.audio_queue = queue.Queue()
         self.result_queue = queue.Queue()
         
@@ -49,14 +52,17 @@ class VoskRealtimeSTT:
         
         # initialize VAD
         self.vad = webrtcvad.Vad(2)  # medium aggressiveness
-        self.vad_frame_duration = 30  # 30ms
+
+        # the frame size used to detect speech
+        # each frame is 30ms, so the frame size is sample_rate * 30ms
+        self.vad_frame_duration = 30 
         self.vad_frame_size = int(sample_rate * self.vad_frame_duration / 1000)
         
         # audio detection state
         self.is_speaking = False
         self.speech_frames = []
         self.silence_count = 0
-        self.silence_threshold = 20  # stop after 20 consecutive silent frames
+        self.silence_threshold = 50  # stop after 20 consecutive silent frames
         
         # threading state
         self.is_recording = False
@@ -89,9 +95,13 @@ class VoskRealtimeSTT:
     def _audio_callback(self, indata, frames, time_info, status):
         """audio input callback"""
         
+        # when indata is full, which is block size, the callback will be called
         # process audio data
         # indata is a 2D array with size (1600, 1), we need to flatten it to 1D array
         audio_data = indata.flatten().astype(np.int16)
+
+        # if the queue is not full, put the audio data into the queue
+        # As current queue size is initialized as inifinity, so it is not needed
         if not self.audio_queue.full():
             self.audio_queue.put(audio_data)
         else:
@@ -108,6 +118,8 @@ class VoskRealtimeSTT:
     
     def _detect_speech_vad(self, audio_frame: np.ndarray) -> bool:
         """use VAD to detect speech in audio frame"""
+        # for webrtcvad, the audio frame size should be fixed
+        # audio frame must be 10, 20, 30ms in duration
         if len(audio_frame) != self.vad_frame_size:
             return False
         
@@ -116,7 +128,11 @@ class VoskRealtimeSTT:
         
         # VAD detection
         return self.vad.is_speech(frame_bytes, self.sample_rate)
-    
+
+    def _new_recognizer(self):
+        self.rec = vosk.KaldiRecognizer(self.model, self.sample_rate)
+        self.rec.SetWords(True)
+
     def _process_audio_chunk(self, audio_data: np.ndarray) -> Optional[Dict]:
         """process audio chunk and perform speech recognition"""
         audio_data = self._preprocess_audio(audio_data)
@@ -148,7 +164,7 @@ class VoskRealtimeSTT:
                     self.speech_frames = []
                     return result
         
-        # real-time recognition
+
         if len(self.speech_frames) > 0:
             # send accumulated audio frames for recognition
             audio_bytes = np.array(self.speech_frames[-len(audio_data):], dtype=np.int16).tobytes()
@@ -156,7 +172,7 @@ class VoskRealtimeSTT:
             if self.rec.AcceptWaveform(audio_bytes):
                 result = json.loads(self.rec.Result())
                 if result.get('text', '').strip():
-                    # set buffer to empty after processing
+                    # empty accumulated frames as it is detected as completed speech
                     self.speech_frames = []
                     return self._post_process_result(result)
             else:
@@ -186,7 +202,7 @@ class VoskRealtimeSTT:
         else:
             result = json.loads(self.rec.FinalResult())
         
-        self.rec.Reset()
+        self._new_recognizer()
 
         if result.get('text', '').strip():
             return self._post_process_result(result)
@@ -244,7 +260,6 @@ class VoskRealtimeSTT:
             try:
                 # get audio data from queue
                 audio_data = self.audio_queue.get(timeout=0.1)
-
                 result = self._process_audio_chunk(audio_data)
                 
                 if result:
@@ -281,15 +296,13 @@ class VoskRealtimeSTT:
         if not self.is_recording:
             return
         
-        
         self.is_recording = False
-        
         if hasattr(self, 'stream'):
             self.stream.stop()
             self.stream.close()
         
         # wait for processing thread to finish
-        if self.processing_thread and self.processing_thread.is_alive():
+        if self.processing_thread and self.processing_thread.is_alive() and threading.current_thread() is not self.processing_thread:
             self.processing_thread.join(timeout=2.0)
     
     def get_results(self) -> List[Dict]:
@@ -305,7 +318,7 @@ class VoskRealtimeSTT:
 
     def set_vocabulary(self, vocabulary: List[str]):
         """create custom&limited vocabulary"""
-        self.rec = KaldiRecognizer(self.model, self.sample_rate, vocabulary)
+        self.rec = vosk.KaldiRecognizer(self.model, self.sample_rate, vocabulary)
 
     def get_word_timestamps(self, result: Dict) -> List[Dict]:
         """get word-level timestamps from recognition result"""
@@ -335,7 +348,7 @@ def result_callback(result: Dict):
                 end = word.get('end', 0) 
                 word_text = word.get('word', '')
                 conf = word.get('conf', 1.0)
-                print(f"     {word_text}: {start:.2f}s-{end:.2f}s (置信度:{conf:.2f})")
+                print(f"     {word_text}: {start:.2f}s-{end:.2f}s (confidence:{conf:.2f})")
     
     elif result['type'] == 'partial':
         print(f"⚡ real-time recognition: {result['text']}")
@@ -343,7 +356,7 @@ def result_callback(result: Dict):
 
 def main():
     model_paths = {
-        'english': '/Users/yutong.jiang2/Library/CloudStorage/OneDrive-IKEA/Desktop/Jarvis/src/jarvis/speech2text/models/vosk-model-small-en-us-0.15',
+        'english': '/Users/yutong.jiang2/Library/CloudStorage/OneDrive-IKEA/Desktop/Jarvis/src/jarvis/speech2text/models/vosk-model-en-us-0.42-gigaspeech',
     }
     
     model_path = model_paths.get('english')
