@@ -1,18 +1,26 @@
-[project]
+[tool.poetry]
 name = "jarvis"
 version = "0.1.0"
 description = ""
-authors = [
-    {name = "Your Name",email = "you@example.com"}
-]
+authors = ["Yutong Jiang <yutongj2@gmail.com>"]
 readme = "README.md"
-requires-python = ">=3.12"
-dependencies = [
-]
-
-[tool.poetry]
 packages = [{include = "jarvis", from = "src"}]
 
+
+[tool.poetry.dependencies]
+python = "^3.12"
+pandas = {version = "^2.2.3", optional = true}
+pyaudio = {version = "^0.2.14", optional = true}
+transformers = {version = "^4.52.4", optional = true}
+torch = "^2.7.0"
+sounddevice = {version = "^0.5.2", optional = true}
+vosk = {version = "^0.3.45", optional = true}
+webrtcvad = {version = "^2.0.10", optional = true}
+scipy = {version = "^1.15.3", optional = true}
+numpy = {version = "^2.2.6", optional = true}
+
+[tool.poetry.extras]
+speech2text = ['pyaudio', 'sounddevice', 'vosk', 'webrtcvad', 'scipy', 'numpy']
 
 [build-system]
 requires = ["poetry-core>=2.0.0,<3.0.0"]
