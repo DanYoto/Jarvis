@@ -22,14 +22,15 @@ class LLMClient:
         Initialize  the LLMClient with an optional API key.
         """
         # model initialization
-        self.api_key = api_key or os.getenv("LLM_API_KEY")
+        self.api_key = api_key or os.getenv("llm_api_key")
         if not self.api_key:
             raise ValueError("API key is required for LLMClient.")
         self.deployment_name = deployment_name
         self.endpoint = endpoint
         self.api_version = api_version
 
-        base_tool_node = ToolNode(self._initialize_tools())
+        self.tools = self._initialize_tools()
+        base_tool_node = ToolNode(self.tools)
         self._initialize_client()
 
         def detect_tool_calls(state: AgentState) -> dict:
@@ -45,7 +46,7 @@ class LLMClient:
             tool_messages = [msg for msg in result['messages'] if isinstance(msg, ToolMessage)]
             if tool_messages:
                 latest = tool_messages[-1]
-                print(f"Tool call detected: {latest.name} with content {latest.content}")
+                # print(f"Tool call detected: {latest.name} with content {latest.content}")
             return {"messages": tool_messages}
 
         self.graph = StateGraph(AgentState)
@@ -84,7 +85,7 @@ class LLMClient:
             max_tokens=2000,
             api_key=self.api_key
         )
-        self.llm_client = self.llm_client.bind_tools(self._initialize_tools())
+        self.llm_client = self.llm_client.bind_tools(self.tools)
 
 
     def _call_llm(self, state: AgentState) -> dict:
@@ -108,7 +109,7 @@ class LLMClient:
         init_state = AgentState(messages=[HumanMessage(content=text)])
         final_state = self.runnable.invoke(init_state)
         ai_messages = [msg for msg in final_state['messages'] if isinstance(msg, AIMessage)]
-        return ai_messages[-1]
+        return ai_messages[-1].content
 
 
 if __name__ == "__main__":

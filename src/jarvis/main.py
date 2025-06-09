@@ -14,10 +14,7 @@ def main():
         print(f"❌ Model path doesn't exist: {model_path}")
         return
 
-    llm = LLMClient(
-        api_key="abs",
-        model_name="gpt-3.5-turbo"
-    )
+    llm = LLMClient(api_key=os.getenv("llm_api_key"), deployment_name="gpt-4o")
 
     stt = VoskRealtimeSTT(
         model_path=model_path,
@@ -39,7 +36,7 @@ def main():
             # Send recognized text to LLM
             print("🤖 Querying LLM...")
             try:
-                reply = llm.query(recognized_text)
+                reply = llm.chat(recognized_text)
                 if reply:
                     print(f"🤖 [LLM Reply] {reply}")
                 else:
