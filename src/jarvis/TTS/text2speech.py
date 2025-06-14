@@ -8,7 +8,8 @@ from datetime import datetime
 from .SparkTTS.cli.SparkTTS import SparkTTS
 import numpy as np
 from io import BytesIO
-import time
+import time 
+import platform
 
 class TTSRunner:
     """
@@ -54,6 +55,9 @@ class TTSRunner:
         """
         if torch.cuda.is_available():
             device = torch.device(f"cuda:{self.device_index}")
+        elif platform.system() == "Darwin" and torch.backends.mps.is_available():
+            print('end macos')
+            device = torch.device(f"mps:{self.device_index}")
         else:
             device = torch.device("cpu")
         return device
