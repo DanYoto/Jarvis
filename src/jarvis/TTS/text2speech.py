@@ -12,89 +12,6 @@ import queue
 import time
 import pyaudio
 
-def get_args():
-    parser = argparse.ArgumentParser(
-        formatter_class=argparse.ArgumentDefaultsHelpFormatter
-    )
-
-    parser.add_argument(
-        "--server-url",
-        type=str,
-        default="localhost:8000",
-        help="Address of the server",
-    )
-
-    parser.add_argument(
-        "--reference-audio",
-        type=str,
-        default="../../example/prompt_audio.wav",
-        help="Path to a single audio file",
-    )
-
-    parser.add_argument(
-        "--reference-text",
-        type=str,
-        default="吃燕窝就选燕之屋，本节目由26年专注高品质燕窝的燕之屋冠名播出。豆奶牛奶换着喝，营养更均衡，本节目由豆本豆豆奶特约播出。",
-        help="",
-    )
-
-    parser.add_argument(
-        "--target-text",
-        type=str,
-        default="身临其境，换新体验。塑造开源语音合成新范式，让智能语音更自然。",
-        help="",
-    )
-
-    parser.add_argument(
-        "--model-name",
-        type=str,
-        default="spark_tts",
-        choices=["f5_tts", "spark_tts"],
-        help="triton model_repo module name to request",
-    )
-
-    parser.add_argument(
-        "--output-audio",
-        type=str,
-        default="output.wav",
-        help="Path to save the output audio (optional, for saving final result)",
-    )
-    
-    parser.add_argument(
-        "--chunk-size",
-        type=int,
-        default=200,
-        help="Maximum number of characters per chunk",
-    )
-    
-    parser.add_argument(
-        "--overlap-duration",
-        type=float,
-        default=0.1,
-        help="Duration in seconds to overlap between chunks",
-    )
-    
-    parser.add_argument(
-        "--from-file",
-        type=str,
-        default=None,
-        help="Read target text from a file instead of command line",
-    )
-    
-    parser.add_argument(
-        "--streaming",
-        action="store_true",
-        help="Enable streaming playback while generating",
-    )
-    
-    parser.add_argument(
-        "--save-final",
-        action="store_true",
-        help="Save the final concatenated audio file",
-    )
-    
-    return parser.parse_args()
-
 def split_text_intelligently(text: str, max_length: int = 200) -> List[str]:
     """
     Split text into chunks intelligently, grouping every two sentences together.
@@ -123,7 +40,7 @@ def split_text_intelligently(text: str, max_length: int = 200) -> List[str]:
             else:
                 if parts[i].strip():
                     complete_sentences.append(parts[i])
-    
+
     print(f"Found {len(complete_sentences)} sentence/clause units")
     
     chunks = []
@@ -214,7 +131,7 @@ def prepare_request(waveform, reference_text, target_text, sample_rate=16000):
 
 def apply_crossfade(audio1: np.ndarray, audio2: np.ndarray, overlap_samples: int) -> np.ndarray:
     """
-    Apply crossfade between two audio segments.
+    Apply crossfade between two audio segments for smooth transition.
     """
     if overlap_samples <= 0 or overlap_samples > len(audio1) or overlap_samples > len(audio2):
         return np.concatenate([audio1, audio2])
@@ -354,9 +271,6 @@ def generate_streaming_audio(
     chunk_size: int = 200,
     overlap_duration: float = 0.1,
     sample_rate: int = 16000,
-    streaming: bool = True,
-    save_final: bool = False,
-    output_path: str = None,
     player: StreamingAudioPlayer = None
 ) -> Generator[np.ndarray, None, None]:
     """
@@ -371,8 +285,6 @@ def generate_streaming_audio(
     chunks = split_text_intelligently(target_text, chunk_size)
     print(f"📄 Text split into {len(chunks)} chunks")
     
-    # Prepare for final audio saving if needed
-    all_audio_segments = [] if save_final else None
     overlap_samples = int(overlap_duration * sample_rate)
     previous_audio = None
 
@@ -413,10 +325,6 @@ def generate_streaming_audio(
             
             previous_audio = current_audio
             
-            # Save segment if required
-            if save_final:
-                all_audio_segments.append(playback_audio)
-            
             duration = len(playback_audio) / sample_rate
             print(f"✅ Chunk {i+1} ready, duration: {duration:.2f}s, samples: {len(playback_audio)}")
             
@@ -437,88 +345,53 @@ def generate_streaming_audio(
     if player:
         player.finish_generation()
     
-    # Save final audio file if requested
-    if save_final and all_audio_segments and output_path:
-        print("💾 Saving final audio file...")
-        final_audio = np.concatenate(all_audio_segments)
-        sf.write(output_path, final_audio, sample_rate, "PCM_16")
-        print(f"📁 Final audio saved to: {output_path}")
-        print(f"⏱️ Total duration: {len(final_audio) / sample_rate:.2f} seconds")
 
-def main():
-    args = get_args()
-    
-    server_url = args.server_url
+def main(server_url: str = None, 
+         reference_text: str = None, 
+         target_text: str = None, 
+         reference_audio: str = None, 
+         model_name: str = "spark_tts",
+         chunk_size: int = 200,
+         overlap_duration: float = 0.1,):
+
+    server_url = server_url
     if not server_url.startswith(("http://", "https://")):
         server_url = f"http://{server_url}"
     
-    # Read target text from file if specified
-    if args.from_file:
-        with open(args.from_file, 'r', encoding='utf-8') as f:
-            target_text = f.read().strip()
-    else:
-        target_text = args.target_text
     
     print(f"📝 Target text length: {len(target_text)} characters")
     
     try:
-        if args.streaming:
-            # Streaming mode: generate and play back
-            print("🚀 Starting streaming audio generation and playback...")
-            
-            player = StreamingAudioPlayer(sample_rate=16000)
-            player.start_playback()
-            
-            try:
-                chunk_count = 0
-                for audio_chunk in generate_streaming_audio(
-                    server_url=server_url,
-                    model_name=args.model_name,
-                    reference_audio_path=args.reference_audio,
-                    reference_text=args.reference_text,
-                    target_text=target_text,
-                    chunk_size=args.chunk_size,
-                    overlap_duration=args.overlap_duration,
-                    streaming=True,
-                    save_final=args.save_final,
-                    output_path=args.output_audio if args.save_final else None,
-                    player=player
-                ):
-                    chunk_count += 1
-                    print(f"🎼 Generator yielded chunk {chunk_count}")
-                
-                print(f"🏁 All chunks generated, total: {chunk_count}")
-                print("⏳ Waiting for playback to finish...")
-                player.wait_for_completion()
-                print("✅ Playback complete, exiting")
-                
-            except KeyboardInterrupt:
-                print("\n⚠️ Playback interrupted by user")
-            finally:
-                print("🛑 Stopping player...")
-                player.stop_playback()
-                
-        else:
-            # Batch mode: generate full audio then save
-            print("📁 Batch mode: generating full audio file...")
-            all_chunks = list(generate_streaming_audio(
+        print("🚀 Starting streaming audio generation and playback...")
+        
+        player = StreamingAudioPlayer(sample_rate=16000)
+        player.start_playback()
+        
+        try:
+            chunk_count = 0
+            for audio_chunk in generate_streaming_audio(
                 server_url=server_url,
-                model_name=args.model_name,
-                reference_audio_path=args.reference_audio,
-                reference_text=args.reference_text,
+                model_name=model_name,
+                reference_audio_path=reference_audio,
+                reference_text=reference_text,
                 target_text=target_text,
-                chunk_size=args.chunk_size,
-                overlap_duration=args.overlap_duration,
-                streaming=False,
-                save_final=True,
-                output_path=args.output_audio
-            ))
+                chunk_size=chunk_size,
+                overlap_duration=overlap_duration,
+                player=player
+            ):
+                chunk_count += 1
+                print(f"🎼 Generator yielded chunk {chunk_count}")
             
-            if all_chunks:
-                final_audio = np.concatenate(all_chunks)
-                sf.write(args.output_audio, final_audio, 16000, "PCM_16")
-                print(f"📁 Audio saved to: {args.output_audio}")
-                print(f"⏱️ Total duration: {len(final_audio) / 16000:.2f} seconds")
+            print(f"🏁 All chunks generated, total: {chunk_count}")
+            print("⏳ Waiting for playback to finish...")
+            player.wait_for_completion()
+            print("✅ Playback complete, exiting")
+            
+        except KeyboardInterrupt:
+            print("\n⚠️ Playback interrupted by user")
+        finally:
+            print("🛑 Stopping player...")
+            player.stop_playback()
         
     except KeyboardInterrupt:
         print("\n⚠️ Operation interrupted by user")
@@ -530,13 +403,15 @@ def main():
     return 0
 
 if __name__ == "__main__":
-    exit(main())
-
-
-"""
-python client_http.py \
-            --reference-audio ../../example/prompt_audio.wav \
-            --reference-text "吃燕窝就选燕之屋，本节目由26年专注高品质燕窝的燕之屋冠名播出。豆奶牛奶换着喝，营养更均衡，本节目由豆本豆豆奶特约播出。" \
-            --target-text "微风拂过湖面，掀起层层涟漪，映出斑斓的夕阳余晖。远处的青山在薄雾中若隐若现，似乎在诉说着古老的传说。岸边的垂柳低垂枝条，伴随着鸟鸣轻轻摇曳，犹如一曲悠扬的古琴。几只白鹭时而起飞，振翅划过天际，又悠然落回水面，留下几声清脆的“咕咕”。这一刻，天地静谧，心境澄明，仿佛所有的烦 恼都被这温柔的景色轻轻带走。" \
-            --model-name spark_tts --streaming
-"""
+    reference_audio = "/Users/yutong.jiang2/Library/CloudStorage/OneDrive-IKEA/Desktop/Jarvis/src/jarvis/TTS/reference_audio/prompt_audio.wav"
+    reference_text = "吃燕窝就选燕之屋，本节目由26年专注高品质燕窝的燕之屋冠名播出。豆奶牛奶换着喝，营养更均衡，本节目由豆本豆豆奶特约播出。"
+    target_text = "微风拂过湖面，掀起层层涟漪，映出斑斓的夕阳余晖。远处的青山在薄雾中若隐若现，似乎在诉说着古老的传说。岸边的垂柳低垂枝条，伴随着鸟鸣轻轻摇曳，犹如一曲悠扬的古琴。几只白鹭时而起飞，振翅划过天际，又悠然落回水面，留下几声清脆的“咕咕”。这一刻，天地静谧，心境澄明，仿佛所有的烦恼都被这温柔的景色轻轻带走。"
+    main(
+        server_url="http://localhost:8000",
+        reference_audio=reference_audio,
+        reference_text=reference_text,
+        target_text=target_text,
+        model_name="spark_tts",
+        chunk_size=200,
+        overlap_duration=0.1
+    )
