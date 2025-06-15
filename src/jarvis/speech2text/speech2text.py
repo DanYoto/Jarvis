@@ -415,10 +415,11 @@ def main():
     model_paths = {
         'english': '/Users/yutong.jiang2/Library/CloudStorage/OneDrive-IKEA/Desktop/Jarvis/src/jarvis/speech2text/models/vosk-model-en-us-0.42-gigaspeech',
         'english-small': '/Users/yutong.jiang2/Library/CloudStorage/OneDrive-IKEA/Desktop/Jarvis/src/jarvis/speech2text/models/vosk-model-en-us-0.22',
+        'chinese': '/Users/yutong.jiang2/Library/CloudStorage/OneDrive-IKEA/Desktop/Jarvis/src/jarvis/speech2text/models/vosk-model-cn-0.22'
     }
     
     # Try the larger model first, fallback to smaller
-    model_path = model_paths.get('english')
+    model_path = model_paths.get('chinese')
     
     # Create STT instance
     stt = VoskRealtimeSTT(
