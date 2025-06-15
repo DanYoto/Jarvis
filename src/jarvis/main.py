@@ -48,9 +48,12 @@ def main():
                     print(f"🤖 [LLM Reply] {reply}")
                     print("Generating TTS audio...")
                     try:
+                        print(time.time())
                         audio_data, sample_rate, _ = tts_runner.run(text=reply)
+                        print(time.time())
                         print("Playing response audio...")
                         audio_player.play(audio_data, sample_rate)
+                        print(time.time())
                         print(f"✅ TTS audio generated and played successfully")
                     except Exception as tts_error:
                         print(f"❌ TTS error: {tts_error}")
