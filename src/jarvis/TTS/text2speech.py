@@ -346,13 +346,13 @@ def generate_streaming_audio(
         player.finish_generation()
     
 
-def main(server_url: str = None, 
-         reference_text: str = None, 
+def synthesis_speech(server_url: str = "http://localhost:8000", 
+         reference_text: str = "", 
          target_text: str = None, 
-         reference_audio: str = None, 
+         reference_audio: str = "/Users/yutong.jiang2/Library/CloudStorage/OneDrive-IKEA/Desktop/Jarvis/src/jarvis/TTS/reference_audio/JunningZhang_output.wav", 
          model_name: str = "spark_tts",
          chunk_size: int = 200,
-         overlap_duration: float = 0.1,):
+         overlap_duration: float = 0.1):
 
     server_url = server_url
     if not server_url.startswith(("http://", "https://")):
@@ -406,7 +406,7 @@ if __name__ == "__main__":
     reference_audio = "/Users/yutong.jiang2/Library/CloudStorage/OneDrive-IKEA/Desktop/Jarvis/src/jarvis/TTS/reference_audio/prompt_audio.wav"
     reference_text = "吃燕窝就选燕之屋，本节目由26年专注高品质燕窝的燕之屋冠名播出。豆奶牛奶换着喝，营养更均衡，本节目由豆本豆豆奶特约播出。"
     target_text = "微风拂过湖面，掀起层层涟漪，映出斑斓的夕阳余晖。远处的青山在薄雾中若隐若现，似乎在诉说着古老的传说。岸边的垂柳低垂枝条，伴随着鸟鸣轻轻摇曳，犹如一曲悠扬的古琴。几只白鹭时而起飞，振翅划过天际，又悠然落回水面，留下几声清脆的“咕咕”。这一刻，天地静谧，心境澄明，仿佛所有的烦恼都被这温柔的景色轻轻带走。"
-    main(
+    synthesis_speech(
         server_url="http://localhost:8000",
         reference_audio=reference_audio,
         reference_text=reference_text,

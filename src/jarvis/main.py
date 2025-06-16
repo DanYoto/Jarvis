@@ -1,6 +1,6 @@
 from speech2text.speech2text import VoskRealtimeSTT
 from LLM_agents.LLMAgents import LLMClient
-from TTS.text2speech import TTSRunner, AudioPlayer
+from TTS.text2speech import synthesis_speech
 
 import os
 import time
@@ -9,7 +9,7 @@ from typing import Dict
 
 def main():
     # vosk model path
-    vosk_model_path = "/Users/yutong.jiang2/Library/CloudStorage/OneDrive-IKEA/Desktop/Jarvis/src/jarvis/speech2text/models/vosk-model-en-us-0.22"
+    vosk_model_path = "/Users/yutong.jiang2/Library/CloudStorage/OneDrive-IKEA/Desktop/Jarvis/src/jarvis/speech2text/models/vosk-model-cn-0.22"
 
 
     # Check if model path exists
@@ -18,10 +18,6 @@ def main():
         return
 
     llm = LLMClient(api_key=os.getenv("llm_api_key"), deployment_name="gpt-4o")
-
-    tts_runner = TTSRunner()
-
-    audio_player = AudioPlayer(sample_rate=16000)
 
     stt = VoskRealtimeSTT(
         model_path=vosk_model_path,
@@ -48,11 +44,7 @@ def main():
                     print(f"🤖 [LLM Reply] {reply}")
                     print("Generating TTS audio...")
                     try:
-                        print(time.time())
-                        audio_data, sample_rate, _ = tts_runner.run(text=reply)
-                        print(time.time())
-                        print("Playing response audio...")
-                        audio_player.play(audio_data, sample_rate)
+                        synthesis_speech(target_text=reply)
                         print(time.time())
                         print(f"✅ TTS audio generated and played successfully")
                     except Exception as tts_error:
