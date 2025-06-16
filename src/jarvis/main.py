@@ -1,5 +1,7 @@
 from speech2text.speech2text import VoskRealtimeSTT
-from LLM_agents.LLMAgents import LLMClient 
+from LLM_agents.LLMAgents import LLMClient
+from TTS.text2speech import synthesis_speech
+
 import os
 import time
 from typing import Dict
@@ -7,17 +9,18 @@ from typing import Dict
 
 def main():
     # vosk model path
-    model_path = "/Users/yutong.jiang2/Library/CloudStorage/OneDrive-IKEA/Desktop/Jarvis/src/jarvis/speech2text/models/vosk-model-en-us-0.22"
+    vosk_model_path = "/Users/yutong.jiang2/Library/CloudStorage/OneDrive-IKEA/Desktop/Jarvis/src/jarvis/speech2text/models/vosk-model-cn-0.22"
+
 
     # Check if model path exists
-    if not os.path.exists(model_path):
-        print(f"❌ Model path doesn't exist: {model_path}")
+    if not os.path.exists(vosk_model_path):
+        print(f"❌ Model path doesn't exist: {vosk_model_path}")
         return
 
     llm = LLMClient(api_key=os.getenv("llm_api_key"), deployment_name="gpt-4o")
 
     stt = VoskRealtimeSTT(
-        model_path=model_path,
+        model_path=vosk_model_path,
         sample_rate=16000,
         callback=None
     )
@@ -39,6 +42,13 @@ def main():
                 reply = llm.chat(recognized_text)
                 if reply:
                     print(f"🤖 [LLM Reply] {reply}")
+                    print("Generating TTS audio...")
+                    try:
+                        synthesis_speech(target_text=reply)
+                        print(time.time())
+                        print(f"✅ TTS audio generated and played successfully")
+                    except Exception as tts_error:
+                        print(f"❌ TTS error: {tts_error}")
                 else:
                     print("⚠️ LLM did not return any content or the call failed.")
             except Exception as e:
