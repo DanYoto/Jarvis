@@ -2,12 +2,11 @@ from langchain_core.tools import tool
 from langgraph.graph import END, START, StateGraph
 from langgraph.graph.message import add_messages
 from langchain_core.messages import HumanMessage, AnyMessage, AIMessage, ToolMessage
-from langchain_community.tools.tavily_search import TavilySearchResults
 from langgraph.prebuilt import ToolNode
 from langchain_openai.chat_models.azure import AzureChatOpenAI
+from .AgentTools.Agenttools import *
 import os
 from typing import Optional, List, Dict, TypedDict, Annotated
-import time
 
 class AgentState(TypedDict):
     """
@@ -62,15 +61,7 @@ class LLMClient:
         """
         Initialize the tools for the agent.
         """
-        @tool
-        def search(query: str):
-            """
-            Search the web using Tavily.
-            """
-            tavily_tool = TavilySearchResults(tavily_api_key=os.environ["tavily_api_key"], max_results=5)
-            results = tavily_tool.invoke(query)
-            return results
-        return [search]
+        return [search, get_current_time]
 
 
     def _initialize_client(self):
