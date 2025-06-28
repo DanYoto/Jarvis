@@ -5,19 +5,118 @@ import numpy as np
 import argparse
 import re
 from typing import List, Tuple, Generator
-import io
-import wave
+import cn2an
 import threading
 import queue
 import time
 import pyaudio
 
-def split_text_intelligently(text: str, max_length: int = 200) -> List[str]:
+def normalize_numbers_chinese(text: str) -> str:
+    """
+    Normalize numbers in Chinese text to a consistent format.
+    """
+    def convert_number(match):
+        number = match.group()
+        try:
+            # process decimal numbers
+            if '.' in number:
+                integer_part, decimal_part = number.split('.')
+                integer_chinese = cn2an.an2cn(int(integer_part))
+                decimal_chinese = '点' + ''.join([cn2an.an2cn(int(d)) for d in decimal_part])
+                return integer_chinese + decimal_chinese
+            
+            # process integer numbers
+            num = int(number)
+            if num == 0:
+                return '零'
+            elif 1000 <= num <= 9999:
+                # For years, use the digit-by-digit reading method
+                if re.search(r'(19|20)\d{2}年', match.string[max(0, match.start()-2):match.end()+1]):
+                    return ''.join([cn2an.an2cn(int(d)) for d in number])
+                else:
+                    return cn2an.an2cn(num)
+            else:
+                return cn2an.an2cn(num)
+                
+        except:
+            # If conversion fails, return digit-by-digit reading method
+            return ''.join([cn2an.an2cn(int(d)) if d.isdigit() else d for d in number])
+
+    # Match numbers (including decimals)
+    text = re.sub(r'\d+\.?\d*', convert_number, text)
+    return text
+
+
+def normalize_special_symbols(text: str) -> str:
+    symbol_map = {
+        "%": "百分之",
+        "‰": "千分之",
+        "℃": "摄氏度",
+        "°": "度",
+        "km": "公里",
+        "m": "米",
+        "kg": "千克",
+        "g": "克",
+        "ml": "毫升",
+        "l": "升",
+        "cm": "厘米",
+        "mm": "毫米",
+        "km/h": "公里每小时",
+        "m/s": "米每秒",
+        "km²": "平方公里",
+        "m²": "平方米",
+        "ha": "公顷",
+        "t": "吨",
+        '&': '和',
+        '@': '艾特',
+        '#': '井号',
+        '$': '美元',
+        '¥': '人民币',
+        '€': '欧元',
+        '£': '英镑',
+        '+': '加',
+        '-': '减',
+        '×': '乘以',
+        '÷': '除以',
+        '=': '等于',
+        '<': '小于',
+        '>': '大于',
+        '≤': '小于等于',
+        '≥': '大于等于',
+        '℉': '华氏度'
+    }
+
+    for symbol, replacement in symbol_map.items():
+        text = text.replace(symbol, replacement)
+    return text
+
+
+def preprocess_text(text: str) -> str:
+    """
+    Process the input text to normalize numbers and special symbols.
+    """
+    # Normalize numbers
+    text = normalize_numbers_chinese(text)
+    
+    # Normalize special symbols
+    text = normalize_special_symbols(text)
+    
+    # Remove extra spaces
+    text = re.sub(r'\s+', ' ', text).strip()
+    
+    return text
+
+
+def split_text_intelligently(text: str, max_length: int = 256) -> List[str]:
     """
     Split text into chunks intelligently, grouping every two sentences together.
     """
+
+    text = preprocess_text(text)
+
     sentences = re.split(r'([。！？.!?]+)', text)
     
+    # complete sentences is one sentence with punctuation
     complete_sentences = []
     for i in range(0, len(sentences), 2):
         if i + 1 < len(sentences):
@@ -43,6 +142,7 @@ def split_text_intelligently(text: str, max_length: int = 200) -> List[str]:
 
     print(f"Found {len(complete_sentences)} sentence/clause units")
     
+    # combine two sentences into one chunk if they fit within max_length
     chunks = []
     for i in range(0, len(complete_sentences), 2):
         if i + 1 < len(complete_sentences):

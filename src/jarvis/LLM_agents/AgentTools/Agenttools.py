@@ -34,5 +34,6 @@ def get_current_time(location: Optional[str] = None) -> str:
         utc_now = datetime.utcnow()
         target_timezone = pytz.timezone(timezone)
         local_time = utc_now.replace(tzinfo=pytz.utc).astimezone(target_timezone)
-        return f"Current time in {timezone} is {local_time.strftime('%Y-%m-%d %H:%M:%S')}"    
+        return f"Current time in {timezone} is {local_time.strftime('%Y-%m-%d %H:%M:%S')}"
+
     return f"Current local time is {time.strftime('%Y-%m-%d %H:%M:%S', time.localtime())}"
