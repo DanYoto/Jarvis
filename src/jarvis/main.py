@@ -43,7 +43,6 @@ def main():
                     print(f"🤖 [LLM Reply] {reply}")
                     print("Generating TTS audio...")
                     try:
-                        print(reply)
                         synthesis_speech(target_text=reply)
                         print(time.time())
                         print(f"✅ TTS audio generated and played successfully")
