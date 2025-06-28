@@ -347,9 +347,9 @@ def generate_streaming_audio(
     
 
 def synthesis_speech(server_url: str = "http://localhost:8000", 
-         reference_text: str = "", 
+         reference_text: str = "吃燕窝就选燕之屋，本节目由26年专注高品质燕窝的燕之屋冠名播出。豆奶牛奶换着喝，营养更均衡，本节目由豆本豆豆奶特约播出。", 
          target_text: str = None, 
-         reference_audio: str = "/Users/yutong.jiang2/Library/CloudStorage/OneDrive-IKEA/Desktop/Jarvis/src/jarvis/TTS/reference_audio/JunningZhang_output.wav", 
+         reference_audio: str = "/Users/yutong.jiang2/Library/CloudStorage/OneDrive-IKEA/Desktop/Jarvis/src/jarvis/TTS/reference_audio/prompt_audio.wav", 
          model_name: str = "spark_tts",
          chunk_size: int = 200,
          overlap_duration: float = 0.1):
