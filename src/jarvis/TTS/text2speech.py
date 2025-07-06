@@ -231,18 +231,29 @@ def prepare_request(waveform, reference_text, target_text, sample_rate=16000):
 
 def apply_crossfade(audio1: np.ndarray, audio2: np.ndarray, overlap_samples: int) -> np.ndarray:
     """
-    Apply crossfade between two audio segments for smooth transition.
+    改进的交叉淡入淡出，使用更自然的过渡曲线
     """
     if overlap_samples <= 0 or overlap_samples > len(audio1) or overlap_samples > len(audio2):
         return np.concatenate([audio1, audio2])
     
-    fade_out = np.linspace(1, 0, overlap_samples)
-    fade_in = np.linspace(0, 1, overlap_samples)
+    fade_curve = np.linspace(0, 1, overlap_samples)
+    # sigmoid-like
+    fade_in = 0.5 * (1 + np.tanh(6 * (fade_curve - 0.5)))
+    fade_out = 1 - fade_in
     
     audio1_fade = audio1.copy()
-    audio1_fade[-overlap_samples:] *= fade_out
-    
     audio2_fade = audio2.copy()
+    
+    audio1_end_rms = np.sqrt(np.mean(audio1[-overlap_samples:]**2))
+    audio2_start_rms = np.sqrt(np.mean(audio2[:overlap_samples]**2))
+    
+    if audio1_end_rms > 0 and audio2_start_rms > 0:
+        volume_ratio = audio1_end_rms / audio2_start_rms
+        if volume_ratio > 2.0 or volume_ratio < 0.5:
+            adjustment = np.sqrt(volume_ratio) if volume_ratio > 1 else 1/np.sqrt(1/volume_ratio)
+            audio2_fade[:overlap_samples] *= min(adjustment, 1.5)
+    
+    audio1_fade[-overlap_samples:] *= fade_out
     audio2_fade[:overlap_samples] *= fade_in
     
     result = np.concatenate([
@@ -503,15 +514,20 @@ def synthesis_speech(server_url: str = "http://localhost:8000",
     return 0
 
 if __name__ == "__main__":
-    reference_audio = "/Users/yutong.jiang2/Library/CloudStorage/OneDrive-IKEA/Desktop/Jarvis/src/jarvis/TTS/reference_audio/prompt_audio.wav"
-    reference_text = "吃燕窝就选燕之屋，本节目由26年专注高品质燕窝的燕之屋冠名播出。豆奶牛奶换着喝，营养更均衡，本节目由豆本豆豆奶特约播出。"
-    target_text = "微风拂过湖面，掀起层层涟漪，映出斑斓的夕阳余晖。远处的青山在薄雾中若隐若现，似乎在诉说着古老的传说。岸边的垂柳低垂枝条，伴随着鸟鸣轻轻摇曳，犹如一曲悠扬的古琴。几只白鹭时而起飞，振翅划过天际，又悠然落回水面，留下几声清脆的“咕咕”。这一刻，天地静谧，心境澄明，仿佛所有的烦恼都被这温柔的景色轻轻带走。"
+    # reference_audio = "/Users/yutong.jiang2/Library/CloudStorage/OneDrive-IKEA/Desktop/Jarvis/src/jarvis/TTS/reference_audio/prompt_audio.wav"
+    # reference_text = "吃燕窝就选燕之屋，本节目由26年专注高品质燕窝的燕之屋冠名播出。豆奶牛奶换着喝，营养更均衡，本节目由豆本豆豆奶特约播出。"
+
+    reference_audio = "/Users/yutong.jiang2/Library/CloudStorage/OneDrive-IKEA/Desktop/Jarvis/src/jarvis/TTS/reference_audio/yanglan_zh.wav"
+    reference_text = "语音合成技术其实早已经悄悄走进了我们的生活，从智能语音助手到有声读物再到个性化语音复刻。这项技术正在改变我们获取信息，与世界互动的方式，而且它的进步速度远超我们的想象。"
+
+    # target_text = "微风拂过湖面，掀起层层涟漪，映出斑斓的夕阳余晖。远处的青山在薄雾中若隐若现，似乎在诉说着古老的传说。岸边的垂柳低垂枝条，伴随着鸟鸣轻轻摇曳，犹如一曲悠扬的古琴。几只白鹭时而起飞，振翅划过天际，又悠然落回水面，留下几声清脆的“咕咕”。这一刻，天地静谧，心境澄明，仿佛所有的烦恼都被这温柔的景色轻轻带走。"
+    target_text = "春天的阳光透过窗棂洒在桌案上，微风轻拂过院中的桃花树，花瓣纷纷扬扬地飘落在青石板上。远处传来鸟儿清脆的啁啾声，仿佛在诉说着季节更替的喜悦。老人坐在藤椅上，手中捧着一杯热茶，茶香袅袅升起，与花香交融在一起，营造出一片宁静祥和的氛围。时光在这一刻仿佛放慢了脚步，让人不禁沉醉在这份简单而美好的生活中。"
     synthesis_speech(
         server_url="http://localhost:8000",
         reference_audio=reference_audio,
         reference_text=reference_text,
         target_text=target_text,
         model_name="spark_tts",
-        chunk_size=200,
+        chunk_size=40,
         overlap_duration=0.1
     )
