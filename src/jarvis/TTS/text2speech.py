@@ -5,192 +5,11 @@ import numpy as np
 import argparse
 import re
 from typing import List, Tuple, Generator
-import cn2an
 import threading
 import queue
 import time
 import pyaudio
-
-def normalize_numbers_chinese(text: str) -> str:
-    """
-    Normalize numbers in Chinese text to a consistent format.
-    """
-    def convert_number(match):
-        number = match.group()
-        try:
-            # process decimal numbers
-            if '.' in number:
-                integer_part, decimal_part = number.split('.')
-                integer_chinese = cn2an.an2cn(int(integer_part))
-                decimal_chinese = '点' + ''.join([cn2an.an2cn(int(d)) for d in decimal_part])
-                return integer_chinese + decimal_chinese
-            
-            # process integer numbers
-            num = int(number)
-            if num == 0:
-                return '零'
-            elif 1000 <= num <= 9999:
-                # For years, use the digit-by-digit reading method
-                if re.search(r'(19|20)\d{2}年', match.string[max(0, match.start()-2):match.end()+1]):
-                    return ''.join([cn2an.an2cn(int(d)) for d in number])
-                else:
-                    return cn2an.an2cn(num)
-            else:
-                return cn2an.an2cn(num)
-                
-        except:
-            # If conversion fails, return digit-by-digit reading method
-            return ''.join([cn2an.an2cn(int(d)) if d.isdigit() else d for d in number])
-
-    # Match numbers (including decimals)
-    text = re.sub(r'\d+\.?\d*', convert_number, text)
-    return text
-
-
-def normalize_special_symbols(text: str) -> str:
-    symbol_map = {
-        "%": "百分之",
-        "‰": "千分之",
-        "℃": "摄氏度",
-        "°": "度",
-        "km": "公里",
-        "m": "米",
-        "kg": "千克",
-        "g": "克",
-        "ml": "毫升",
-        "l": "升",
-        "cm": "厘米",
-        "mm": "毫米",
-        "km/h": "公里每小时",
-        "m/s": "米每秒",
-        "km²": "平方公里",
-        "m²": "平方米",
-        "ha": "公顷",
-        "t": "吨",
-        '&': '和',
-        '@': '艾特',
-        '#': '井号',
-        '$': '美元',
-        '¥': '人民币',
-        '€': '欧元',
-        '£': '英镑',
-        '+': '加',
-        '-': '减',
-        '×': '乘以',
-        '÷': '除以',
-        '=': '等于',
-        '<': '小于',
-        '>': '大于',
-        '≤': '小于等于',
-        '≥': '大于等于',
-        '℉': '华氏度'
-    }
-
-    for symbol, replacement in symbol_map.items():
-        text = text.replace(symbol, replacement)
-    return text
-
-
-def preprocess_text(text: str) -> str:
-    """
-    Process the input text to normalize numbers and special symbols.
-    """
-    # Normalize numbers
-    text = normalize_numbers_chinese(text)
-    
-    # Normalize special symbols
-    text = normalize_special_symbols(text)
-    
-    # Remove extra spaces
-    text = re.sub(r'\s+', ' ', text).strip()
-    
-    return text
-
-
-def split_text_intelligently(text: str, max_length: int = 256) -> List[str]:
-    """
-    Split text into chunks intelligently, grouping every two sentences together.
-    """
-
-    text = preprocess_text(text)
-
-    sentences = re.split(r'([。！？.!?]+)', text)
-    
-    # complete sentences is one sentence with punctuation
-    complete_sentences = []
-    for i in range(0, len(sentences), 2):
-        if i + 1 < len(sentences):
-            sentence_with_punct = sentences[i] + sentences[i + 1]
-            if sentence_with_punct.strip():
-                complete_sentences.append(sentence_with_punct)
-        else:
-            if sentences[i].strip():
-                complete_sentences.append(sentences[i])
-    
-    if len(complete_sentences) <= 1:
-        print("No sentence endings found, splitting by commas...")
-        parts = re.split(r'([，,、；;]+)', text)
-        complete_sentences = []
-        for i in range(0, len(parts), 2):
-            if i + 1 < len(parts):
-                part_with_punct = parts[i] + parts[i + 1]
-                if part_with_punct.strip():
-                    complete_sentences.append(part_with_punct)
-            else:
-                if parts[i].strip():
-                    complete_sentences.append(parts[i])
-
-    print(f"Found {len(complete_sentences)} sentence/clause units")
-    
-    # combine two sentences into one chunk if they fit within max_length
-    chunks = []
-    for i in range(0, len(complete_sentences), 2):
-        if i + 1 < len(complete_sentences):
-            two_sentences = complete_sentences[i] + complete_sentences[i + 1]
-        else:
-            two_sentences = complete_sentences[i]
-        
-        if len(two_sentences) <= max_length:
-            chunks.append(two_sentences.strip())
-        else:
-            if len(complete_sentences[i]) <= max_length:
-                chunks.append(complete_sentences[i].strip())
-            else:
-                sub_chunks = split_long_sentence(complete_sentences[i], max_length)
-                chunks.extend(sub_chunks)
-            
-            if i + 1 < len(complete_sentences):
-                if len(complete_sentences[i + 1]) <= max_length:
-                    chunks.append(complete_sentences[i + 1].strip())
-                else:
-                    sub_chunks = split_long_sentence(complete_sentences[i + 1], max_length)
-                    chunks.extend(sub_chunks)
-    
-    for idx, chunk in enumerate(chunks):
-        print(f"Chunk {idx + 1} ({len(chunk)} chars): {chunk[:50]}...")
-    
-    return chunks
-
-def split_long_sentence(sentence: str, max_length: int) -> List[str]:
-    """
-    Split a long sentence by commas or other punctuation.
-    """
-    sub_parts = re.split(r'([，,、；;]+)', sentence)
-    sub_chunks = []
-    current_chunk = ""
-    
-    for part in sub_parts:
-        if len(current_chunk) + len(part) <= max_length:
-            current_chunk += part
-        else:
-            if current_chunk:
-                sub_chunks.append(current_chunk.strip())
-            current_chunk = part
-    
-    if current_chunk:
-        sub_chunks.append(current_chunk.strip())
-    
-    return sub_chunks
+from SentenceSplitter import *
 
 def prepare_request(waveform, reference_text, target_text, sample_rate=16000):
     assert len(waveform.shape) == 1, "waveform should be 1D"
@@ -308,7 +127,7 @@ class StreamingAudioPlayer:
         self.audio_queue.put(None)  # send stop signal
         
         if hasattr(self, 'playback_thread') and self.playback_thread:
-            self.playback_thread.join(timeout=5.0)
+            self.playback_thread.join(timeout=8.0)
             
         if self.stream:
             self.stream.stop_stream()
@@ -379,7 +198,7 @@ def generate_streaming_audio(
     reference_audio_path: str,
     reference_text: str,
     target_text: str,
-    chunk_size: int = 200,
+    chunk_size: int = 30,
     overlap_duration: float = 0.1,
     sample_rate: int = 16000,
     player: StreamingAudioPlayer = None
@@ -462,7 +281,7 @@ def synthesis_speech(server_url: str = "http://localhost:8000",
          target_text: str = None, 
          reference_audio: str = "/Users/yutong.jiang2/Library/CloudStorage/OneDrive-IKEA/Desktop/Jarvis/src/jarvis/TTS/reference_audio/prompt_audio.wav", 
          model_name: str = "spark_tts",
-         chunk_size: int = 200,
+         chunk_size: int = 30,
          overlap_duration: float = 0.1):
 
     server_url = server_url
@@ -514,14 +333,14 @@ def synthesis_speech(server_url: str = "http://localhost:8000",
     return 0
 
 if __name__ == "__main__":
-    # reference_audio = "/Users/yutong.jiang2/Library/CloudStorage/OneDrive-IKEA/Desktop/Jarvis/src/jarvis/TTS/reference_audio/prompt_audio.wav"
-    # reference_text = "吃燕窝就选燕之屋，本节目由26年专注高品质燕窝的燕之屋冠名播出。豆奶牛奶换着喝，营养更均衡，本节目由豆本豆豆奶特约播出。"
+    reference_audio = "/Users/yutong.jiang2/Library/CloudStorage/OneDrive-IKEA/Desktop/Jarvis/src/jarvis/TTS/reference_audio/prompt_audio.wav"
+    reference_text = "吃燕窝就选燕之屋，本节目由26年专注高品质燕窝的燕之屋冠名播出。豆奶牛奶换着喝，营养更均衡，本节目由豆本豆豆奶特约播出。"
 
-    reference_audio = "/Users/yutong.jiang2/Library/CloudStorage/OneDrive-IKEA/Desktop/Jarvis/src/jarvis/TTS/reference_audio/yanglan_zh.wav"
-    reference_text = "语音合成技术其实早已经悄悄走进了我们的生活，从智能语音助手到有声读物再到个性化语音复刻。这项技术正在改变我们获取信息，与世界互动的方式，而且它的进步速度远超我们的想象。"
+    # reference_audio = "/Users/yutong.jiang2/Library/CloudStorage/OneDrive-IKEA/Desktop/Jarvis/src/jarvis/TTS/reference_audio/yanglan_zh.wav"
+    # reference_text = "语音合成技术其实早已经悄悄走进了我们的生活，从智能语音助手到有声读物再到个性化语音复刻。这项技术正在改变我们获取信息，与世界互动的方式，而且它的进步速度远超我们的想象。"
 
-    # target_text = "微风拂过湖面，掀起层层涟漪，映出斑斓的夕阳余晖。远处的青山在薄雾中若隐若现，似乎在诉说着古老的传说。岸边的垂柳低垂枝条，伴随着鸟鸣轻轻摇曳，犹如一曲悠扬的古琴。几只白鹭时而起飞，振翅划过天际，又悠然落回水面，留下几声清脆的“咕咕”。这一刻，天地静谧，心境澄明，仿佛所有的烦恼都被这温柔的景色轻轻带走。"
-    target_text = "春天的阳光透过窗棂洒在桌案上，微风轻拂过院中的桃花树，花瓣纷纷扬扬地飘落在青石板上。远处传来鸟儿清脆的啁啾声，仿佛在诉说着季节更替的喜悦。老人坐在藤椅上，手中捧着一杯热茶，茶香袅袅升起，与花香交融在一起，营造出一片宁静祥和的氛围。时光在这一刻仿佛放慢了脚步，让人不禁沉醉在这份简单而美好的生活中。"
+    target_text = "微风拂过湖面，掀起层层涟漪，映出斑斓的夕阳余晖。远处的青山在薄雾中若隐若现，似乎在诉说着古老的传说。岸边的垂柳低垂枝条，伴随着鸟鸣轻轻摇曳，犹如一曲悠扬的古琴。几只白鹭时而起飞，振翅划过天际，又悠然落回水面，留下几声清脆的“咕咕”。这一刻，天地静谧，心境澄明，仿佛所有的烦恼都被这温柔的景色轻轻带走。"
+    # target_text = "春天的阳光透过窗棂洒在桌案上，微风轻拂过院中的桃花树，花瓣纷纷扬扬地飘落在青石板上。远处传来鸟儿清脆的啁啾声，仿佛在诉说着季节更替的喜悦。老人坐在藤椅上，手中捧着一杯热茶，茶香袅袅升起，与花香交融在一起，营造出一片宁静祥和的氛围。时光在这一刻仿佛放慢了脚步，让人不禁沉醉在这份简单而美好的生活中。"
     synthesis_speech(
         server_url="http://localhost:8000",
         reference_audio=reference_audio,
