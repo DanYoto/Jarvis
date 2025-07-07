@@ -14,9 +14,12 @@ def search(query: str):
     """
     Search the web using Tavily.
     """
-    tavily_tool = TavilySearchResults(tavily_api_key=os.environ["tavily_api_key"], max_results=5)
+    tavily_tool = TavilySearchResults(
+        tavily_api_key=os.environ["tavily_api_key"], max_results=5
+    )
     results = tavily_tool.invoke(query)
     return results
+
 
 @tool
 def get_current_time(location: Optional[str] = None) -> str:
@@ -34,6 +37,10 @@ def get_current_time(location: Optional[str] = None) -> str:
         utc_now = datetime.utcnow()
         target_timezone = pytz.timezone(timezone)
         local_time = utc_now.replace(tzinfo=pytz.utc).astimezone(target_timezone)
-        return f"Current time in {timezone} is {local_time.strftime('%Y-%m-%d %H:%M:%S')}"
+        return (
+            f"Current time in {timezone} is {local_time.strftime('%Y-%m-%d %H:%M:%S')}"
+        )
 
-    return f"Current local time is {time.strftime('%Y-%m-%d %H:%M:%S', time.localtime())}"
+    return (
+        f"Current local time is {time.strftime('%Y-%m-%d %H:%M:%S', time.localtime())}"
+    )

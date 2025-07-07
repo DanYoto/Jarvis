@@ -7,15 +7,23 @@ from .AgentTools.Agenttools import *
 import os
 from typing import Optional, List, Dict, TypedDict, Annotated
 
+
 class AgentState(TypedDict):
     """
     AgentState is a type dictionary that holds the state of the agent.
     """
+
     messages: Annotated[list[AnyMessage], add_messages]
 
 
 class LLMClient:
-    def __init__(self, api_key: Optional[str] = None, deployment_name: str = "gpt-4o", endpoint: str = os.getenv("endpoint"), api_version: str = "2024-12-01-preview"):
+    def __init__(
+        self,
+        api_key: Optional[str] = None,
+        deployment_name: str = "gpt-4o",
+        endpoint: str = os.getenv("endpoint"),
+        api_version: str = "2024-12-01-preview",
+    ):
         """
         Initialize  the LLMClient with an optional API key.
         """
@@ -36,23 +44,27 @@ class LLMClient:
             Detect which tool calls were made in the last message.
             """
             last_message = state["messages"][-1]
-            if hasattr(last_message, 'tool_calls') and last_message.tool_calls:
+            if hasattr(last_message, "tool_calls") and last_message.tool_calls:
                 for call in last_message.tool_calls:
-                    print(f"detected tool call: {call.get('name')} with args {call.get('args')}")
+                    print(
+                        f"detected tool call: {call.get('name')} with args {call.get('args')}"
+                    )
 
             result = base_tool_node.invoke(state)
-            tool_messages = [msg for msg in result['messages'] if isinstance(msg, ToolMessage)]
+            tool_messages = [
+                msg for msg in result["messages"] if isinstance(msg, ToolMessage)
+            ]
             if tool_messages:
                 latest = tool_messages[-1]
                 # print(f"Tool call detected: {latest.name} with content {latest.content}")
             return {"messages": tool_messages}
 
         self.graph = StateGraph(AgentState)
-        self.graph.add_node('llm', self._call_llm)
-        self.graph.add_node('tool', detect_tool_calls)
-        self.graph.add_edge(START, 'llm')
-        self.graph.add_conditional_edges('llm', self._should_continue)
-        self.graph.add_edge('tool', 'llm')
+        self.graph.add_node("llm", self._call_llm)
+        self.graph.add_node("tool", detect_tool_calls)
+        self.graph.add_edge(START, "llm")
+        self.graph.add_conditional_edges("llm", self._should_continue)
+        self.graph.add_edge("tool", "llm")
 
         self.runnable = self.graph.compile()
 
@@ -61,7 +73,6 @@ class LLMClient:
         Initialize the tools for the agent.
         """
         return [search, get_current_time]
-
 
     def _initialize_client(self):
         """
@@ -73,10 +84,9 @@ class LLMClient:
             api_version=self.api_version,
             temperature=0.5,
             max_tokens=2000,
-            api_key=self.api_key
+            api_key=self.api_key,
         )
         self.llm_client = self.llm_client.bind_tools(self.tools)
-
 
     def _call_llm(self, state: AgentState) -> dict:
         """
@@ -91,18 +101,21 @@ class LLMClient:
         Determine if the agent should continue based on the last message.
         """
         if state["messages"][-1].tool_calls:
-            return 'tool'
+            return "tool"
         return END
-    
 
     def chat(self, text: str):
         init_state = AgentState(messages=[HumanMessage(content=text)])
         final_state = self.runnable.invoke(init_state)
-        ai_messages = [msg for msg in final_state['messages'] if isinstance(msg, AIMessage)]
+        ai_messages = [
+            msg for msg in final_state["messages"] if isinstance(msg, AIMessage)
+        ]
         return ai_messages[-1].content
 
 
 if __name__ == "__main__":
     agent = LLMClient(api_key=os.getenv("llm_api_key"), deployment_name="gpt-4o")
-    final_response = agent.chat("As of June 1, 2023, which three films have earned the highest worldwide box-office grosses for 2023 so far?")
+    final_response = agent.chat(
+        "As of June 1, 2023, which three films have earned the highest worldwide box-office grosses for 2023 so far?"
+    )
     print(final_response)

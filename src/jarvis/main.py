@@ -10,7 +10,6 @@ def main():
     # vosk model path
     vosk_model_path = "/Users/yutong.jiang2/Library/CloudStorage/OneDrive-IKEA/Desktop/Jarvis/src/jarvis/speech2text/models/vosk-model-cn-0.22"
 
-
     # Check if model path exists
     if not os.path.exists(vosk_model_path):
         print(f"❌ Model path doesn't exist: {vosk_model_path}")
@@ -18,17 +17,13 @@ def main():
 
     llm = LLMClient(api_key=os.getenv("llm_api_key"), deployment_name="gpt-4o")
 
-    stt = VoskRealtimeSTT(
-        model_path=vosk_model_path,
-        sample_rate=16000,
-        callback=None
-    )
+    stt = VoskRealtimeSTT(model_path=vosk_model_path, sample_rate=16000, callback=None)
 
     # Define callback function to handle STT results
     def callback_pause_and_query_llm(result: Dict):
-        if result['type'] == 'final':
-            recognized_text = result['text']
-            confidence = result.get('confidence', 1.0)
+        if result["type"] == "final":
+            recognized_text = result["text"]
+            confidence = result.get("confidence", 1.0)
             print(f"🎯 [STT Final] Text: {recognized_text} (conf={confidence:.2f})")
 
             # Pause STT recognition instead of stopping
@@ -57,7 +52,7 @@ def main():
             print("▶️ LLM processing complete, resuming STT")
             stt.resume_recognition()
 
-        elif result['type'] == 'partial':
+        elif result["type"] == "partial":
             # Optional: show partial results
             # print(f"⚡ [STT Partial] {result['text']}")
             pass
@@ -69,13 +64,13 @@ def main():
         print("🎤 Starting Vosk real-time speech recognition...")
         print("Speak something, then pause. Press Ctrl+C to stop.")
         print("-" * 50)
-        
+
         stt.start_recognition()
         start_ts = time.time()
-        
+
         while True:
             time.sleep(0.1)
-            
+
             # Optional: get and process results from queue
             # This is redundant if callback is set, but useful for debugging
             # results = stt.get_results()
@@ -94,6 +89,7 @@ def main():
     except Exception as e:
         print(f"❌ Error occurred: {e}")
         import traceback
+
         traceback.print_exc()
     finally:
         # Ensure STT is completely stopped on exit
