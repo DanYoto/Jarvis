@@ -8,36 +8,110 @@ import os
 from typing import Optional, List, Dict, TypedDict, Annotated
 
 
+# add complexity analyzer
+class ComplexityLevel:
+    "Complexity levels for the agent's tasks."
+
+    SIMPLE = "simple"
+    COMPLEX = "complex"
+
+
 class AgentState(TypedDict):
     """
     AgentState is a type dictionary that holds the state of the agent.
     """
 
     messages: Annotated[list[AnyMessage], add_messages]
+    complexity_level: Optional[ComplexityLevel]
 
 
-class LLMClient:
+class ComplexityAnalyzer:
+    """
+    ComplexityAnalyzer is a class that analyzes the complexity of the agent's tasks.
+    It can be used to determine the complexity level of the tasks based on the messages.
+    """
+
     def __init__(
-        self,
+        self, 
+        api_key: str = os.getenv("llm_api_key"), 
+        deployment_name: str = "gpt-4o",
+        endpoint: str = os.getenv("endpoint"),
+        api_version: str = "2024-12-01-preview"
+    ):
+        """
+        Initialize the ComplexityAnalyzer with an optional API key.
+        """
+        self.llm_client = AzureChatOpenAI(
+            azure_deployment=deployment_name,
+            azure_endpoint=endpoint,
+            api_version=api_version,
+            temperature=0.7,
+            max_tokens=128,
+            api_key=api_key,
+        )
+    
+    def analyze_complexity(self, state: AgentState) -> ComplexityLevel:
+        response = self.llm_client.invoke(state["messages"])
+        # more strick flow for handling unexpected extra messages
+        if "simple" in response.content:
+            return ComplexityLevel.SIMPLE
+        else:
+            return ComplexityLevel.COMPLEX
+
+class BaseLLMAgent:
+    """
+    BaseLLMAgent is a base class for LLM agents.
+    It provides a common interface for LLM agents to interact with the LLM client.
+    """
+
+    def __init__(
+        self, 
         api_key: Optional[str] = None,
         deployment_name: str = "gpt-4o",
         endpoint: str = os.getenv("endpoint"),
         api_version: str = "2024-12-01-preview",
+        temperature: float = 0.5,
+        max_tokens: int = 2000,
+    ):
+        self.api_key = api_key or os.getenv("llm_api_key")
+        if not self.api_key:
+            raise ValueError("API key is required for BaseLLMAgent.")
+        self.deployment_name = deployment_name
+        self.endpoint = endpoint
+        self.api_version = api_version
+        self.temperature = temperature
+        self.max_tokens = max_tokens
+        self._initialize_client()
+        self.tools = self._initialize_tools()
+    
+    def _initialize_client(self):
+        self.llm_client = AzureChatOpenAI(
+            azure_deployment=self.deployment_name,
+            azure_endpoint=self.endpoint,
+            api_version=self.api_version,
+            temperature=self.temperature,
+            max_tokens=self.max_tokens,
+            api_key=self.api_key,
+        )
+
+    def _initialize_tools(self):
+        return [search_web, get_current_time]
+
+
+class SimpleToolAgent(BaseLLMAgent):
+    def __init__(
+        self,
+        **kwargs,
     ):
         """
         Initialize  the LLMClient with an optional API key.
         """
         # model initialization
-        self.api_key = api_key or os.getenv("llm_api_key")
-        if not self.api_key:
-            raise ValueError("API key is required for LLMClient.")
-        self.deployment_name = deployment_name
-        self.endpoint = endpoint
-        self.api_version = api_version
-
-        self.tools = self._initialize_tools()
+        super().__init__(**kwargs)
+        self._setup_graph()
+    
+    def _setup_graph(self):
         base_tool_node = ToolNode(self.tools)
-        self._initialize_client()
 
         def detect_tool_calls(state: AgentState) -> dict:
             """
@@ -65,27 +139,13 @@ class LLMClient:
         self.graph.add_edge(START, "llm")
         self.graph.add_conditional_edges("llm", self._should_continue)
         self.graph.add_edge("tool", "llm")
-
         self.runnable = self.graph.compile()
-
-    def _initialize_tools(self):
-        """
-        Initialize the tools for the agent.
-        """
-        return [search, get_current_time]
 
     def _initialize_client(self):
         """
-        Initialize the LLM client with the provided API key and model name.
+        Initialize multiple LLM clients for different purposes.
         """
-        self.llm_client = AzureChatOpenAI(
-            azure_deployment=self.deployment_name,
-            azure_endpoint=self.endpoint,
-            api_version=self.api_version,
-            temperature=0.5,
-            max_tokens=2000,
-            api_key=self.api_key,
-        )
+        super()._initialize_client()
         self.llm_client = self.llm_client.bind_tools(self.tools)
 
     def _call_llm(self, state: AgentState) -> dict:
@@ -112,6 +172,80 @@ class LLMClient:
         ]
         return ai_messages[-1].content
 
+
+class ComplexTaskAgent(BaseLLMAgent):
+    """
+    ComplexTaskAgent is a class that handles complex tasks defined by the complexity analyzer.
+    If the task is complex, it will go to planning, reasoning, and execution phases, which are separate clients defined in the class.
+    """
+
+    def __init__(
+        self,
+        **kwargs,
+    ):
+        super().__init__(**kwargs)
+        self._setup_graph()
+    
+    def _initialize_clients(self):
+        """
+        Initialize multiple LLM clients for different purposes.
+        """
+        super()._initialize_client()
+        self.llm_client_with_tools = self.llm_client.bind_tools(self.tools)
+
+    def _setup_graph(self):
+        # TODO: Implement the graph setup for complex tasks
+        return 
+
+    def _create_plan(self):
+        """
+        Create a plan for the complex task.
+        This method should be implemented to handle the planning phase of complex tasks.
+        """
+        raise NotImplementedError("Planning phase not implemented.")
+
+    def _reasoning_steps(self):
+        """
+        Perform reasoning steps for the complex task.
+        This method should be implemented to handle the reasoning phase of complex tasks.
+        """
+        raise NotImplementedError("Reasoning phase not implemented.")
+    
+    def _evaluate_progress(self):
+        """
+        Evaluate the progress of the complex task.
+        This method should be implemented to handle the evaluation phase of complex tasks.
+        """
+        raise NotImplementedError("Evaluation phase not implemented.")
+
+    def _reasoning_router(self):
+        """
+        Route the reasoning steps based on the complexity of the task.
+        This method should be implemented to handle the routing of reasoning steps for complex tasks.
+        """
+        raise NotImplementedError("Reasoning router not implemented.")
+    
+    def _evaluation_router(self):
+        """
+        Route the evaluation steps based on the complexity of the task.
+        This method should be implemented to handle the routing of evaluation steps for complex tasks.
+        """
+        raise NotImplementedError("Evaluation router not implemented.")
+
+class MultiAgentOrchestrator:
+    """
+    MultiAgentOrchestrator is a class that orchestrates multiple agents to handle complex tasks.
+    It can be used to manage the flow of tasks between different agents based on their capabilities.
+    """
+
+    def __init__(self, agents: List[BaseLLMAgent]):
+        self.agents = agents
+
+    def chat(self, task: str) -> str:
+        """
+        Route the task to the appropriate agent based on the complexity of the task.
+        """
+        return NotImplementedError("Multi-agent orchestration not implemented yet.")
 
 if __name__ == "__main__":
     agent = LLMClient(api_key=os.getenv("llm_api_key"), deployment_name="gpt-4o")

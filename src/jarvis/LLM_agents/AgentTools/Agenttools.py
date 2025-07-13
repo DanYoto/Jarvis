@@ -10,7 +10,7 @@ from langchain_community.tools.tavily_search import TavilySearchResults
 
 
 @tool
-def search(query: str):
+def search_web(query: str):
     """
     Search the web using Tavily.
     """
