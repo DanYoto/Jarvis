@@ -3,10 +3,13 @@ from langgraph.graph.message import add_messages
 from langchain_core.messages import HumanMessage, AnyMessage, AIMessage, ToolMessage
 from langgraph.prebuilt import ToolNode
 from langchain_openai.chat_models.azure import AzureChatOpenAI
-from .AgentTools.Agenttools import *
+from AgentTools.Agenttools import *
+from dotenv import load_dotenv
 import os
 from typing import Optional, List, Dict, TypedDict, Annotated
+from agent_prompts import complexity_analyze_prompt, planning_prompt
 
+load_dotenv()
 
 # add complexity analyzer
 class ComplexityLevel:
@@ -184,6 +187,9 @@ class ComplexTaskAgent(BaseLLMAgent):
         **kwargs,
     ):
         super().__init__(**kwargs)
+        self.tools_description = "\n".join(
+            [f"{tool.name}: {tool.description}" for tool in self.tools]
+        )
         self._setup_graph()
     
     def _initialize_clients(self):
@@ -200,32 +206,25 @@ class ComplexTaskAgent(BaseLLMAgent):
     def _create_plan(self):
         """
         Create a plan for the complex task.
-        This method should be implemented to handle the planning phase of complex tasks.
         """
-        raise NotImplementedError("Planning phase not implemented.")
-
-    def _reasoning_steps(self):
+        # Non-tool LLM client is used for planning
+        messages = state['messages']
+        query = messages[-1].content
+        planning_query = planning_prompt.format(task=query)
+        response = self.llm_client.invoke([HumanMessage(content=planning_query)])
+        return {"messages": [response],
+                "general_planning": response.content}
+        
+    def _execute_step(self):
         """
-        Perform reasoning steps for the complex task.
-        This method should be implemented to handle the reasoning phase of complex tasks.
+        Execute the next step based on the current plan and progress.
         """
-        raise NotImplementedError("Reasoning phase not implemented.")
+        # tool-based LLM client is used for step-wise execution
+        general_planning = state.get("general_planning", "")
+        intermediate_results = state.get("intermediate_step", [])
+        raise NotImplementedError("Step-wise execution not implemented yet.")
     
-    def _evaluate_progress(self):
-        """
-        Evaluate the progress of the complex task.
-        This method should be implemented to handle the evaluation phase of complex tasks.
-        """
-        raise NotImplementedError("Evaluation phase not implemented.")
-
-    def _reasoning_router(self):
-        """
-        Route the reasoning steps based on the complexity of the task.
-        This method should be implemented to handle the routing of reasoning steps for complex tasks.
-        """
-        raise NotImplementedError("Reasoning router not implemented.")
-    
-    def _evaluation_router(self):
+    def _execute_router(self):
         """
         Route the evaluation steps based on the complexity of the task.
         This method should be implemented to handle the routing of evaluation steps for complex tasks.

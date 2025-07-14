@@ -70,7 +70,7 @@ def use_google_map(position_1: str, position_2: str, mode: str, transit_mode: st
     if mode == "transit":
         departure_time = datetime.now()
         if transit_mode:
-             if isinstance(transit_mode, str):
+            if isinstance(transit_mode, str):
                 transit_modes = [m.strip() for m in transit_mode.split(",")]
             else:
                 transit_modes = [transit_mode]
