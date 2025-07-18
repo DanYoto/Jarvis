@@ -86,6 +86,7 @@ class BaseLLMAgent:
         self.max_tokens = max_tokens
         self._initialize_client()
         self.tools = self._initialize_tools()
+        self.base_tool_node = ToolNode(self.tools)
     
     def _initialize_client(self):
         self.llm_client = AzureChatOpenAI(
@@ -175,7 +176,6 @@ class SimpleToolAgent(BaseLLMAgent):
         ]
         return ai_messages[-1].content
 
-
 class ComplexTaskAgent(BaseLLMAgent):
     """
     ComplexTaskAgent is a class that handles complex tasks defined by the complexity analyzer.
@@ -203,7 +203,7 @@ class ComplexTaskAgent(BaseLLMAgent):
         # TODO: Implement the graph setup for complex tasks
         return 
 
-    def _create_plan(self):
+    def _create_plan(self, state: AgentState) -> dict:
         """
         Create a plan for the complex task.
         """
@@ -215,21 +215,58 @@ class ComplexTaskAgent(BaseLLMAgent):
         return {"messages": [response],
                 "general_planning": response.content}
         
-    def _execute_step(self):
+    def _execute_step(self, state: AgentState) -> dict:
         """
         Execute the next step based on the current plan and progress.
         """
         # tool-based LLM client is used for step-wise execution
         general_planning = state.get("general_planning", "")
-        intermediate_results = state.get("intermediate_step", [])
-        raise NotImplementedError("Step-wise execution not implemented yet.")
+        intermediate_steps = state.get("intermediate_step", [])
+        execution_query = step_wise_execution_prompt.format(
+            general_planning=general_planning,
+            tools=self.tools_description,
+            intermediate_results=intermediate_steps
+        )
+        response = self.llm_client_with_tools.invoke([HumanMessage(content=execution_query)])
+
+        intermediate_steps.append(response.content)
+        raise {"messages": [response],
+               "intermediate_step": intermediate_steps}
     
-    def _execute_router(self):
+    def _detedct_tool_calls(self, state: AgentState) -> dict:
+        """
+        Detect tool calls in the last message and return the messages.
+        """
+        last_message = state["messages"][-1]
+        if hasattr(last_message, "tool_calls") and last_message.tool_calls:
+            for call in last_message.tool_calls:
+                print(
+                    f"detected tool call: {call.get('name')} with args {call.get('args')}"
+                )
+
+        result = self.base_tool_node.invoke(state)
+        tool_messages = [
+            msg for msg in result["messages"] if isinstance(msg, ToolMessage)
+        ]
+        if tool_messages:
+            latest = tool_messages[-1]
+            print(f"Tool call detected: {latest.name} with content {latest.content}")
+        return {"messages": tool_messages}
+    
+    def _execute_router(self, state: AgentState) -> dict:
         """
         Route the evaluation steps based on the complexity of the task.
-        This method should be implemented to handle the routing of evaluation steps for complex tasks.
         """
-        raise NotImplementedError("Evaluation router not implemented.")
+        routing_query = routing_prompt.format(
+            general_planning = state.get("general_planning", ""),
+            tools_description = self.tools_description,
+            intermediate_results = state.get("intermediate_step", []),
+        )
+        response = self.llm_client.invoke([HumanMessage(content=routing_query)])
+        decision = response.content.strip().lower()
+        if decision == "complete":
+            return "end"
+        return "continue"
 
 class MultiAgentOrchestrator:
     """
