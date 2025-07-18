@@ -1,5 +1,5 @@
 complexity_analyze_prompt = """你是一个专业的任务复杂度分析专家。请仔细分析以下用户查询的复杂度级别。
-
+ 
 可用的工具包括：
 1. search - 网络搜索工具
 2. get_current_time - 获取当前时间
@@ -32,7 +32,7 @@ complexity_analyze_prompt = """你是一个专业的任务复杂度分析专家�
 3. 是否需要专业领域知识？
 4. 是否需要多个视角或维度的思考？
 
-请返回以下三个词中的一个：simple、complex"""
+请返回以下两个词中的一个：simple、complex"""
 
 # generate the general plan to solve the complex task
 planning_prompt = """

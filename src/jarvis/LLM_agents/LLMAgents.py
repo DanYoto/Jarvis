@@ -7,7 +7,7 @@ from AgentTools.Agenttools import *
 from dotenv import load_dotenv
 import os
 from typing import Optional, List, Dict, TypedDict, Annotated
-from agent_prompts import complexity_analyze_prompt, planning_prompt
+from agent_prompts import complexity_analyze_prompt, planning_prompt, step_wise_execution_prompt
 
 load_dotenv()
 
@@ -26,6 +26,8 @@ class AgentState(TypedDict):
 
     messages: Annotated[list[AnyMessage], add_messages]
     complexity_level: Optional[ComplexityLevel]
+    general_planning: Optional[str]
+    intermediate_step: Optional[List[str]]
 
 
 class ComplexityAnalyzer:
@@ -53,13 +55,14 @@ class ComplexityAnalyzer:
             api_key=api_key,
         )
     
-    def analyze_complexity(self, state: AgentState) -> ComplexityLevel:
-        response = self.llm_client.invoke(state["messages"])
+    def analyze_complexity(self, state: AgentState):
+        user_query = complexity_analyze_prompt.format(query=state["messages"])
+        response = self.llm_client.invoke(user_query)
         # more strick flow for handling unexpected extra messages
-        if "simple" in response.content:
-            return ComplexityLevel.SIMPLE
+        if "simple" in response.content.lower():
+            return ComplexityLevel.SIMPLE.value
         else:
-            return ComplexityLevel.COMPLEX
+            return ComplexityLevel.COMPLEX.value
 
 class BaseLLMAgent:
     """
@@ -132,9 +135,6 @@ class SimpleToolAgent(BaseLLMAgent):
             tool_messages = [
                 msg for msg in result["messages"] if isinstance(msg, ToolMessage)
             ]
-            if tool_messages:
-                latest = tool_messages[-1]
-                # print(f"Tool call detected: {latest.name} with content {latest.content}")
             return {"messages": tool_messages}
 
         self.graph = StateGraph(AgentState)
@@ -190,6 +190,7 @@ class ComplexTaskAgent(BaseLLMAgent):
         self.tools_description = "\n".join(
             [f"{tool.name}: {tool.description}" for tool in self.tools]
         )
+        self._initialize_clients()
         self._setup_graph()
     
     def _initialize_clients(self):
@@ -200,8 +201,19 @@ class ComplexTaskAgent(BaseLLMAgent):
         self.llm_client_with_tools = self.llm_client.bind_tools(self.tools)
 
     def _setup_graph(self):
-        # TODO: Implement the graph setup for complex tasks
-        return 
+        self.graph = StateGraph(AgentState)
+        self.graph.add_node("plan", self._create_plan)
+        self.graph.add_node("execute", self._execute_step)
+        self.graph.add_node("tool_call", self._detedct_tool_calls)
+        self.graph.add_node("summarize", self._summarize_results)
+
+        self.graph.add_edge(START, "plan")
+        self.graph.add_edge("plan", "execute")
+        self.graph.add_conditional_edges("execute", self._route_after_execution)
+        self.graph.add_conditional_edges("tool_call", "execute")
+        self.graph.add_edge("summarize", END)
+
+        self.runnable = self.graph.compile()
 
     def _create_plan(self, state: AgentState) -> dict:
         """
@@ -228,22 +240,14 @@ class ComplexTaskAgent(BaseLLMAgent):
             intermediate_results=intermediate_steps
         )
         response = self.llm_client_with_tools.invoke([HumanMessage(content=execution_query)])
-
         intermediate_steps.append(response.content)
-        raise {"messages": [response],
-               "intermediate_step": intermediate_steps}
-    
-    def _detedct_tool_calls(self, state: AgentState) -> dict:
-        """
-        Detect tool calls in the last message and return the messages.
-        """
-        last_message = state["messages"][-1]
-        if hasattr(last_message, "tool_calls") and last_message.tool_calls:
-            for call in last_message.tool_calls:
+
+        if hasattr(response, "tool_calls") and response.tool_calls:
+            for call in response.tool_calls:
                 print(
                     f"detected tool call: {call.get('name')} with args {call.get('args')}"
                 )
-
+        
         result = self.base_tool_node.invoke(state)
         tool_messages = [
             msg for msg in result["messages"] if isinstance(msg, ToolMessage)
@@ -251,9 +255,14 @@ class ComplexTaskAgent(BaseLLMAgent):
         if tool_messages:
             latest = tool_messages[-1]
             print(f"Tool call detected: {latest.name} with content {latest.content}")
-        return {"messages": tool_messages}
+        
+
+        # intermediate steps is a list, is the way of updating the same as str?
+        intermediate_steps.append(latest)
+        raise {"messages": [response.content + latest],
+               "intermediate_step": intermediate_steps}
     
-    def _execute_router(self, state: AgentState) -> dict:
+    def _route_after_execution(self, state: AgentState) -> dict:
         """
         Route the evaluation steps based on the complexity of the task.
         """
@@ -265,8 +274,9 @@ class ComplexTaskAgent(BaseLLMAgent):
         response = self.llm_client.invoke([HumanMessage(content=routing_query)])
         decision = response.content.strip().lower()
         if decision == "complete":
-            return "end"
-        return "continue"
+            return "summarize"
+        return "execute"
+
 
 class MultiAgentOrchestrator:
     """
@@ -274,14 +284,57 @@ class MultiAgentOrchestrator:
     It can be used to manage the flow of tasks between different agents based on their capabilities.
     """
 
-    def __init__(self, agents: List[BaseLLMAgent]):
-        self.agents = agents
+    def __init__(
+        self, 
+        simple_agents: Optional[SimpleToolAgent] = None, 
+        complex_agents: Optional[ComplexTaskAgent] = None,
+        complexity_analyzer: Optional[ComplexityAnalyzer] = None
+    ):
+        self.simple_agents = simple_agents or SimpleToolAgent()
+        self.complex_agents = complex_agents or ComplexTaskAgent()
+        self.complexity_analyzer = complexity_analyzer or ComplexityAnalyzer()
+        self._setup_orchestrator_graph()
+    
+    def _setup_orchestrator_graph(self):
+        self.graph = StateGraph(AgentState)
+        self.graph.add_node("analyze_complexity", self._analyze_complexity)
+        self.graph.add_node("simple_agent", self._run_simple_agent)
+        self.graph.add_node("complex_agent", self._run_complex_agent)
 
-    def chat(self, task: str) -> str:
+        self.graph.add_edge(START, "analyze_complexity")
+        self.graph.add_conditional_edges("analyze_complexity", self._route_to_agent)
+        self.graph.add_edge("simple_agent", END)
+        self.graph.add_edge("complex_agent", END)
+
+    def _analyze_complexity(self, state: AgentState) -> dict:
         """
-        Route the task to the appropriate agent based on the complexity of the task.
+        Analyze the complexity of the task using the ComplexityAnalyzer.
         """
-        return NotImplementedError("Multi-agent orchestration not implemented yet.")
+        complexity_level = self.complexity_analyzer.analyze_complexity(state)
+        return {"complexity_level": complexity_level}
+
+    def _route_to_agent(self, state: AgentState) -> str:
+        """
+        Route the task to the appropriate agent based on the complexity level.
+        """
+        if state["complexity_level"] == ComplexityLevel.SIMPLE.value:
+            return "simple_agent"
+        else:
+            return "complex_agent"
+    
+    def _run_simple_agent(self, state: AgentState) -> dict:
+        """
+        Run the simple agent to handle simple tasks.
+        """
+        response = self.simple_agents.chat(state["messages"][-1].content)
+        return {"messages": [AIMessage(content=response)]}
+
+    def _run_complex_agent(self, state: AgentState) -> dict:
+        """
+        Run the complex agent to handle complex tasks.
+        """
+        response = self.complex_agents.chat(state["messages"][-1].content)
+        return {"messages": [AIMessage(content=response)]}
 
 if __name__ == "__main__":
     agent = LLMClient(api_key=os.getenv("llm_api_key"), deployment_name="gpt-4o")
