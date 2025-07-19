@@ -23,7 +23,7 @@ class AgentState(TypedDict):
     """
     AgentState is a type dictionary that holds the state of the agent.
     """
-
+    query: Optional[str]
     messages: Annotated[list[AnyMessage], add_messages]
     complexity_level: Optional[ComplexityLevel]
     general_planning: Optional[str]
@@ -60,9 +60,9 @@ class ComplexityAnalyzer:
         response = self.llm_client.invoke(user_query)
         # more strick flow for handling unexpected extra messages
         if "simple" in response.content.lower():
-            return ComplexityLevel.SIMPLE.value
+            return ComplexityLevel.SIMPLE
         else:
-            return ComplexityLevel.COMPLEX.value
+            return ComplexityLevel.COMPLEX
 
 class BaseLLMAgent:
     """
@@ -87,8 +87,8 @@ class BaseLLMAgent:
         self.api_version = api_version
         self.temperature = temperature
         self.max_tokens = max_tokens
-        self._initialize_client()
         self.tools = self._initialize_tools()
+        self._initialize_client()
         self.base_tool_node = ToolNode(self.tools)
     
     def _initialize_client(self):
@@ -168,8 +168,8 @@ class SimpleToolAgent(BaseLLMAgent):
             return "tool"
         return END
 
-    def chat(self, text: str):
-        init_state = AgentState(messages=[HumanMessage(content=text)])
+    def chat(self, query: str):
+        init_state = AgentState(messages=[HumanMessage(content=query)], query=query)
         final_state = self.runnable.invoke(init_state)
         ai_messages = [
             msg for msg in final_state["messages"] if isinstance(msg, AIMessage)
@@ -204,25 +204,34 @@ class ComplexTaskAgent(BaseLLMAgent):
         self.graph = StateGraph(AgentState)
         self.graph.add_node("plan", self._create_plan)
         self.graph.add_node("execute", self._execute_step)
-        self.graph.add_node("tool_call", self._detedct_tool_calls)
+        self.graph.add_node("tool_call", self._detect_tool_calls)
         self.graph.add_node("summarize", self._summarize_results)
 
         self.graph.add_edge(START, "plan")
         self.graph.add_edge("plan", "execute")
-        self.graph.add_conditional_edges("execute", self._route_after_execution)
-        self.graph.add_conditional_edges("tool_call", "execute")
+        self.graph.add_conditional_edges("execute", self._should_continue)
+        self.graph.add_edge("tool_call", "execute")
         self.graph.add_edge("summarize", END)
 
         self.runnable = self.graph.compile()
+
+    def _should_continue(self, state: AgentState):
+        """
+        Determine if the agent should continue based on the last message.
+        If there are tool calls, continue executing steps; otherwise, summarize results.
+        """
+        if state["messages"][-1].tool_calls:
+            return "tool_call"
+        else:
+            return "summarize"
 
     def _create_plan(self, state: AgentState) -> dict:
         """
         Create a plan for the complex task.
         """
         # Non-tool LLM client is used for planning
-        messages = state['messages']
-        query = messages[-1].content
-        planning_query = planning_prompt.format(task=query)
+        query = state['query']
+        planning_query = planning_prompt.format(task=query, tools=self.tools_description)
         response = self.llm_client.invoke([HumanMessage(content=planning_query)])
         return {"messages": [response],
                 "general_planning": response.content}
@@ -241,9 +250,16 @@ class ComplexTaskAgent(BaseLLMAgent):
         )
         response = self.llm_client_with_tools.invoke([HumanMessage(content=execution_query)])
         intermediate_steps.append(response.content)
-
-        if hasattr(response, "tool_calls") and response.tool_calls:
-            for call in response.tool_calls:
+        return {"messages": [response.content],
+               "intermediate_step": intermediate_steps}
+    
+    def _detect_tool_calls(self, state: AgentState) -> dict:
+        """
+        Detect tool calls made in the last message.
+        """
+        last_message = state["messages"][-1]
+        if hasattr(last_message, "tool_calls") and last_message.tool_calls:
+            for call in last_message.tool_calls:
                 print(
                     f"detected tool call: {call.get('name')} with args {call.get('args')}"
                 )
@@ -252,30 +268,25 @@ class ComplexTaskAgent(BaseLLMAgent):
         tool_messages = [
             msg for msg in result["messages"] if isinstance(msg, ToolMessage)
         ]
-        if tool_messages:
-            latest = tool_messages[-1]
-            print(f"Tool call detected: {latest.name} with content {latest.content}")
-        
+        return {"messages": tool_messages}
 
-        # intermediate steps is a list, is the way of updating the same as str?
-        intermediate_steps.append(latest)
-        raise {"messages": [response.content + latest],
-               "intermediate_step": intermediate_steps}
-    
-    def _route_after_execution(self, state: AgentState) -> dict:
+    def _summarize_results(self, state: AgentState) -> dict:
         """
-        Route the evaluation steps based on the complexity of the task.
+        Summarize the results of the complex task.
         """
-        routing_query = routing_prompt.format(
-            general_planning = state.get("general_planning", ""),
-            tools_description = self.tools_description,
-            intermediate_results = state.get("intermediate_step", []),
+        summary_query = summary_prompt.format(
+            search_query=state["query"],
+            general_planning=state.get("general_planning"),
+            tools_description=self.tools_description,
+            intermediate_results=state.get("intermediate_step"),
         )
-        response = self.llm_client.invoke([HumanMessage(content=routing_query)])
-        decision = response.content.strip().lower()
-        if decision == "complete":
-            return "summarize"
-        return "execute"
+        response = self.llm_client.invoke([HumanMessage(content=summary_query)])
+        return {"messages": [response]}
+
+    def chat(self, query: str):
+        init_state = AgentState(messages=[HumanMessage(content=query)], query=query)
+        final_state = self.runnable.invoke(init_state)
+        return final_state["messages"][-1].content
 
 
 class MultiAgentOrchestrator:
@@ -290,9 +301,9 @@ class MultiAgentOrchestrator:
         complex_agents: Optional[ComplexTaskAgent] = None,
         complexity_analyzer: Optional[ComplexityAnalyzer] = None
     ):
-        self.simple_agents = simple_agents or SimpleToolAgent()
-        self.complex_agents = complex_agents or ComplexTaskAgent()
-        self.complexity_analyzer = complexity_analyzer or ComplexityAnalyzer()
+        self.simple_agents = SimpleToolAgent()
+        self.complex_agents = ComplexTaskAgent()
+        self.complexity_analyzer = ComplexityAnalyzer()
         self._setup_orchestrator_graph()
     
     def _setup_orchestrator_graph(self):
@@ -305,6 +316,7 @@ class MultiAgentOrchestrator:
         self.graph.add_conditional_edges("analyze_complexity", self._route_to_agent)
         self.graph.add_edge("simple_agent", END)
         self.graph.add_edge("complex_agent", END)
+        self.runnable = self.graph.compile()
 
     def _analyze_complexity(self, state: AgentState) -> dict:
         """
@@ -317,7 +329,7 @@ class MultiAgentOrchestrator:
         """
         Route the task to the appropriate agent based on the complexity level.
         """
-        if state["complexity_level"] == ComplexityLevel.SIMPLE.value:
+        if state["complexity_level"] == ComplexityLevel.SIMPLE:
             return "simple_agent"
         else:
             return "complex_agent"
@@ -336,9 +348,18 @@ class MultiAgentOrchestrator:
         response = self.complex_agents.chat(state["messages"][-1].content)
         return {"messages": [AIMessage(content=response)]}
 
+    def chat(self, query: str):
+        """
+        Start a chat session with the orchestrator.
+        It will analyze the complexity of the query and route it to the appropriate agent.
+        """
+        init_state = AgentState(messages=[HumanMessage(content=query)], query=query)
+        final_state = self.runnable.invoke(init_state)
+        return final_state["messages"][-1].content
+
 if __name__ == "__main__":
-    agent = LLMClient(api_key=os.getenv("llm_api_key"), deployment_name="gpt-4o")
-    final_response = agent.chat(
-        "As of June 1, 2023, which three films have earned the highest worldwide box-office grosses for 2023 so far?"
+    orchestrator = MultiAgentOrchestrator()
+    final_response = orchestrator.chat(
+        "I'm considering investing $500,000 in a diversified portfolio split between U.S. large-cap tech stocks, emerging market bonds, and REITs. Can you analyze the current market conditions for each asset class, compare their performance over the past 12 months, research the latest Federal Reserve policy impacts on these sectors, evaluate how rising interest rates specifically affect REIT valuations, and create a comprehensive investment strategy report that includes risk assessment, optimal allocation percentages based on current economic indicators, and potential scenarios for the next 18 months? Also, I'd like to understand how recent geopolitical tensions have affected emerging market bond spreads and whether now is a good entry point."
     )
     print(final_response)

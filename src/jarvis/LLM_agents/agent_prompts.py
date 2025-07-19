@@ -76,3 +76,14 @@ step_wise_execution_prompt = """
 请根据当前已获得的中间结果，判断是否需要调用工具来获得更多信息。
 如果整体规划已经完全完成，请返回“complete”。
 """
+
+summary_prompt = summary_prompt = """
+基于用户的查询语句{search_query} 以下计划和执行步骤，请提供最终总结：
+
+计划：{general_planning}
+
+已完成的步骤：
+{intermediate_results}
+
+请提供清晰简洁的结果总结。
+"""
