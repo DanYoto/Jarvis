@@ -7,7 +7,7 @@ from AgentTools.Agenttools import *
 from dotenv import load_dotenv
 import os
 from typing import Optional, List, Dict, TypedDict, Annotated
-from agent_prompts import complexity_analyze_prompt, planning_prompt, step_wise_execution_prompt
+from agent_prompts import complexity_analyze_prompt, planning_prompt, step_wise_execution_prompt, summary_prompt
 
 load_dotenv()
 
@@ -250,7 +250,7 @@ class ComplexTaskAgent(BaseLLMAgent):
         )
         response = self.llm_client_with_tools.invoke([HumanMessage(content=execution_query)])
         intermediate_steps.append(response.content)
-        return {"messages": [response.content],
+        return {"messages": [response],
                "intermediate_step": intermediate_steps}
     
     def _detect_tool_calls(self, state: AgentState) -> dict:
@@ -258,6 +258,7 @@ class ComplexTaskAgent(BaseLLMAgent):
         Detect tool calls made in the last message.
         """
         last_message = state["messages"][-1]
+        intermediate_steps = state.get("intermediate_step", [])
         if hasattr(last_message, "tool_calls") and last_message.tool_calls:
             for call in last_message.tool_calls:
                 print(
@@ -268,6 +269,8 @@ class ComplexTaskAgent(BaseLLMAgent):
         tool_messages = [
             msg for msg in result["messages"] if isinstance(msg, ToolMessage)
         ]
+        intermediate_steps.extend([tool_message.content for tool_message in tool_messages])
+        print(f"intermediate steps: {intermediate_steps}")
         return {"messages": tool_messages}
 
     def _summarize_results(self, state: AgentState) -> dict:
@@ -277,7 +280,6 @@ class ComplexTaskAgent(BaseLLMAgent):
         summary_query = summary_prompt.format(
             search_query=state["query"],
             general_planning=state.get("general_planning"),
-            tools_description=self.tools_description,
             intermediate_results=state.get("intermediate_step"),
         )
         response = self.llm_client.invoke([HumanMessage(content=summary_query)])
@@ -295,12 +297,7 @@ class MultiAgentOrchestrator:
     It can be used to manage the flow of tasks between different agents based on their capabilities.
     """
 
-    def __init__(
-        self, 
-        simple_agents: Optional[SimpleToolAgent] = None, 
-        complex_agents: Optional[ComplexTaskAgent] = None,
-        complexity_analyzer: Optional[ComplexityAnalyzer] = None
-    ):
+    def __init__(self):
         self.simple_agents = SimpleToolAgent()
         self.complex_agents = ComplexTaskAgent()
         self.complexity_analyzer = ComplexityAnalyzer()
@@ -360,6 +357,6 @@ class MultiAgentOrchestrator:
 if __name__ == "__main__":
     orchestrator = MultiAgentOrchestrator()
     final_response = orchestrator.chat(
-        "I'm considering investing $500,000 in a diversified portfolio split between U.S. large-cap tech stocks, emerging market bonds, and REITs. Can you analyze the current market conditions for each asset class, compare their performance over the past 12 months, research the latest Federal Reserve policy impacts on these sectors, evaluate how rising interest rates specifically affect REIT valuations, and create a comprehensive investment strategy report that includes risk assessment, optimal allocation percentages based on current economic indicators, and potential scenarios for the next 18 months? Also, I'd like to understand how recent geopolitical tensions have affected emerging market bond spreads and whether now is a good entry point."
+         "I'm considering investing $500,000 in a diversified portfolio split between U.S. large-cap tech stocks, emerging market bonds, and REITs. Can you analyze the current market conditions for each asset class, compare their performance over the past 12 months, research the latest Federal Reserve policy impacts on these sectors, evaluate how rising interest rates specifically affect REIT valuations, and create a comprehensive investment strategy report that includes risk assessment, optimal allocation percentages based on current economic indicators, and potential scenarios for the next 18 months? Also, I'd like to understand how recent geopolitical tensions have affected emerging market bond spreads and whether now is a good entry point."
     )
     print(final_response)
