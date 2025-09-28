@@ -72,14 +72,14 @@ class BaseLLMAgent:
 
     def __init__(
         self, 
-        api_key: Optional[str] = None,
+        api_key: Optional[str] = os.getenv("llm_api_key"),
         deployment_name: str = "gpt-4o",
         endpoint: str = os.getenv("endpoint"),
         api_version: str = "2024-12-01-preview",
         temperature: float = 0.5,
         max_tokens: int = 2000,
     ):
-        self.api_key = api_key or os.getenv("llm_api_key")
+        self.api_key = api_key
         if not self.api_key:
             raise ValueError("API key is required for BaseLLMAgent.")
         self.deployment_name = deployment_name

@@ -1,27 +1,48 @@
-[tool.poetry]
+[project]
 name = "jarvis"
 version = "0.1.0"
 description = ""
-authors = ["Yutong Jiang <yutongj2@gmail.com>"]
+authors = [
+    {name = "Yutong Jiang", email = "yutongj2@gmail.com"}
+]
 readme = "README.md"
-packages = [{include = "jarvis", from = "src"}]
+requires-python = ">=3.12"
+dependencies = [
+    "torch>=2.7.0,<3.0.0",
+    "transformers>=4.56.2",
+]
 
+[project.optional-dependencies]
+speech2text = [
+    "pyaudio>=0.2.14,<0.3.0",
+    "sounddevice>=0.5.2,<0.6.0",
+    "vosk>=0.3.45,<0.4.0",
+    "webrtcvad>=2.0.10,<3.0.0",
+    "scipy>=1.15.3,<2.0.0",
+    "numpy>=2.2.6,<3.0.0"
+]
+data = [
+    "pandas>=2.2.3,<3.0.0"
+]
+tts = [
 
-[tool.poetry.dependencies]
-python = "^3.12"
-pandas = {version = "^2.2.3", optional = true}
-pyaudio = {version = "^0.2.14", optional = true}
-transformers = {version = "^4.52.4", optional = true}
-torch = "^2.7.0"
-sounddevice = {version = "^0.5.2", optional = true}
-vosk = {version = "^0.3.45", optional = true}
-webrtcvad = {version = "^2.0.10", optional = true}
-scipy = {version = "^1.15.3", optional = true}
-numpy = {version = "^2.2.6", optional = true}
-
-[tool.poetry.extras]
-speech2text = ['pyaudio', 'sounddevice', 'vosk', 'webrtcvad', 'scipy', 'numpy']
+]
+llm-agents = [
+    "geopy>=2.4.1",
+    "langchain-community>=0.3.30",
+    "langchain-openai>=0.3.33",
+    "langgraph>=0.6.0",
+    "pytz>=2025.2",
+    "timezonefinder>=8.1.0",
+    "transformers>=4.52.4,<5.0.0",
+]
 
 [build-system]
-requires = ["poetry-core>=2.0.0,<3.0.0"]
-build-backend = "poetry.core.masonry.api"
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[tool.uv]
+dev-dependencies = []
+
+[tool.hatch.build.targets.wheel]
+packages = ["src/jarvis"]
