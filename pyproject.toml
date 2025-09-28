@@ -32,6 +32,7 @@ llm-agents = [
     "langchain-community>=0.3.30",
     "langchain-openai>=0.3.33",
     "langgraph>=0.6.0",
+    "mcp>=1.15.0",
     "pytz>=2025.2",
     "timezonefinder>=8.1.0",
     "transformers>=4.52.4,<5.0.0",
