@@ -25,7 +25,10 @@ data = [
     "pandas>=2.2.3,<3.0.0"
 ]
 tts = [
-
+    "cn2an>=0.5.23",
+    "pyaudio>=0.2",
+    "sounddevice>=0.5.2",
+    "soundfile>=0.13.1",
 ]
 llm-agents = [
     "geopy>=2.4.1",
@@ -42,8 +45,8 @@ llm-agents = [
 requires = ["hatchling"]
 build-backend = "hatchling.build"
 
-[tool.uv]
-dev-dependencies = []
+[dependency-groups]
+dev = []
 
 [tool.hatch.build.targets.wheel]
 packages = ["src/jarvis"]
